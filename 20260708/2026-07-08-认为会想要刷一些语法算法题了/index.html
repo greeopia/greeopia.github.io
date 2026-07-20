@@ -128,6 +128,8 @@ body {
   height: 100vh;
   z-index: -1;
   overflow: hidden;
+  transform-origin: center center;
+  will-change: transform, filter;
 }
 .home-bg-img {
   position: absolute;
@@ -632,28 +634,34 @@ ps：提升我对整个工程的理解的是学长代码的两个变量：<br>
 </noscript>
 <script>
 (function() {
-  // ── Fullscreen background scroll blur ──
+  // ── Fullscreen background scroll blur (InkeyP-style) ──
   var bgCover = document.getElementById('home-bg-cover');
   var mainInner = document.querySelector('.main-inner');
   var MAX_BLUR = 15;
-  var BLUR_RANGE = 200;  // px over which blur ramps from 0 to max after entering articles
+  var BLUR_ZONE = 50;  // tight transition zone in px
 
   function updateBgBlur() {
     if (!bgCover || !mainInner) return;
     var mainTop = mainInner.getBoundingClientRect().top;
     var progress;
-    if (mainTop > 0) {
-      // hero still partially visible: background clear
+    if (mainTop > BLUR_ZONE) {
+      // hero still visibly above article boundary: sharp background
       progress = 0;
+    } else if (mainTop <= 0) {
+      // article area reaching viewport top: full blur
+      progress = 1;
     } else {
-      // into article area: blur ramps quickly to full
-      progress = Math.min(1, -mainTop / BLUR_RANGE);
+      // 50px transition zone near the boundary
+      progress = (BLUR_ZONE - mainTop) / BLUR_ZONE;
     }
     var blurPx = (progress * MAX_BLUR).toFixed(1) + 'px';
     var imgs = bgCover.querySelectorAll('.home-bg-img');
     for (var i = 0; i < imgs.length; i++) {
       imgs[i].style.filter = 'blur(' + blurPx + ')';
     }
+    // scale-based parallax: shrink toward 1.0 as we scroll down
+    var scale = 1 + 0.1 * (1 - progress);
+    bgCover.style.transform = 'scale(' + scale.toFixed(3) + ')';
   }
 
   if (bgCover && mainInner) {
