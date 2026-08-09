@@ -4,7 +4,7 @@
 
 本博客通过 GitHub Actions 每天自动从外部平台拉取文章，生成 Hexo Markdown 文件并部署到 GitHub Pages。
 
-- **博客地址**: https://greenpia033-bot.github.io/
+- **博客地址**: https://greeopia.github.io/
 - **同步时间**: 每天 UTC 20:00（北京时间次日凌晨 4:00）
 
 ---
