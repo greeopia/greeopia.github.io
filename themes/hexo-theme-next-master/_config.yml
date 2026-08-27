@@ -687,7 +687,7 @@ comments:
   # Available values: tabs | buttons
   style: tabs
   # Choose a comment system to be displayed by default.
-  # Available values: disqus | disqusjs | livere | gitalk | utterances | isso
+  # Available values: disqus | disqusjs | livere | gitalk | utterances | isso | giscus
   active:
   # Setting `true` means remembering the comment system selected by the visitor.
   storage: true
@@ -758,6 +758,29 @@ utterances:
 # Isso
 # For more information: https://isso-comments.de
 isso: # <data_isso>
+
+# Giscus
+# For more information: https://giscus.app
+# Get repo_id / category_id from https://giscus.app
+# Requires: public repo + Discussions enabled + giscus GitHub App installed
+# https://github.com/apps/giscus
+# See: https://giscus.app/zh-CN
+# Docs: https://giscus.app
+# Note: theme must follow `preferred_color_scheme` if `darkmode: true` is used.
+giscus:
+  enable: true
+  repo: greeopia/greeopia.github.io # GitHub repository owner and name
+  repo_id: R_kgDOTLgbhw # Get from https://giscus.app
+  category: Announcements # Discussion category
+  category_id: DIC_kwDOTLgbh84DES5_ # Get from https://giscus.app
+  mapping: pathname # Available values: pathname | url | title | og:title
+  strict: false # Use strict title matching
+  reactions_enabled: true # Enable reactions on the main post
+  emit_metadata: false # Output discussion metadata to parent page
+  input_position: bottom # Available values: top | bottom
+  theme: preferred_color_scheme # Available values: light | dark | preferred_color_scheme | transparent_dark | ...
+  language: zh-CN # See: https://github.com/giscus/giscus/tree/main/locales
+  loading: lazy # Available values: lazy | eager
 
 
 # ---------------------------------------------------------------
