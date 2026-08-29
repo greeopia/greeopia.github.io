@@ -29,17 +29,21 @@ jobs:
       - name: Sync external posts
         run: node tools/sync-posts.js
 
+      # 用 git status 而不是 git diff：新建的文章是 untracked 文件，
+      # git diff 检测不到，导致新文章永远不会被提交
       - name: Check for changes
         id: check_changes
         run: |
-          git diff --quiet source/_posts/ || echo "has_changes=true" >> $GITHUB_OUTPUT
+          if [ -n "$(git status --porcelain source/_posts source/images)" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Commit and push new posts
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add source/_posts/
+          git add source/_posts/ source/images/
           git commit -m "📝 sync: auto-import external posts ($(date +%Y-%m-%d))"
           git push
 
