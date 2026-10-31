@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
-const test = require('node:test');
+const { beforeEach, test } = require('node:test');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -26,6 +26,14 @@ const {
 } = require('../sync-posts.js');
 
 const NODE_BIN = process.execPath;
+
+// Node 20 can corrupt its test-report stream when CLI progress messages contain
+// Unicode. Keep these state-based tests silent; test-context mocks auto-restore.
+beforeEach(context => {
+  for (const method of ['log', 'warn', 'error']) {
+    context.mock.method(console, method, () => {});
+  }
+});
 
 function makeTempDir() {
   const root = path.join(__dirname, '.tmp');

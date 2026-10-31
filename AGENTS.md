@@ -14,7 +14,7 @@ This Hexo blog uses the vendored NexT theme.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 20.19+. On Windows, run Hexo/Git commands in PowerShell with the `myblogs` conda environment activated: `conda activate myblogs`.
+Use Node.js 22.12+. On Windows, run Hexo/Git commands in PowerShell with the `myblogs` conda environment activated: `conda activate myblogs`.
 
 - `npm ci`: install dependencies from `package-lock.json`.
 - `npm test`: check rendering, browser integration, assets, and offline import behavior.

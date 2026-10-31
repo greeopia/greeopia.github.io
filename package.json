@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
-    "test": "node --test tools/tests",
+    "test": "node --test tools/tests/*.test.js",
     "build": "hexo generate --concurrency 1",
     "clean": "hexo clean",
     "deploy": "hexo deploy",
