@@ -50,10 +50,23 @@ highlight:
   tab_replace: ''
   wrap: true
   hljs: false
+  strip_indent: false
 prismjs:
   preprocess: true
   line_number: true
   tab_replace: ''
+
+# Keep imported HTML intact and render formulas before Markdown can alter TeX.
+markdown:
+  render:
+    html: true
+    breaks: true
+    linkify: true
+    typographer: false
+  plugins:
+    - name: '@renbaoshuo/markdown-it-katex'
+      options:
+        throwOnError: false
 
 # Home page setting
 # path: Root path for your blogs index page. (default = '')

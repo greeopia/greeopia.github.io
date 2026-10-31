@@ -40,7 +40,7 @@
   </section>
   {%- endif %}
 
-  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <header class="header{% if not is_home() %} scrolled{% endif %}" itemscope itemtype="http://schema.org/WPHeader">
     {%- include '_partials/header/index.njk' -%}
   </header>
 
@@ -118,12 +118,8 @@
       <span class="floating-stats-label">文章</span>
     </div>
     <div class="floating-stats-item">
-      <span class="floating-stats-num" id="total-wordcount">…</span>
+      <span class="floating-stats-num" id="total-wordcount">{{ site_word_count() }}</span>
       <span class="floating-stats-label">字数</span>
-    </div>
-    <div class="floating-stats-item">
-      <span class="floating-stats-num" id="visitor-count">…</span>
-      <span class="floating-stats-label">访客</span>
     </div>
   </div>
 

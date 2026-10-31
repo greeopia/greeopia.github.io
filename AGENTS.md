@@ -1,54 +1,45 @@
 # Repository Guidelines
 
-## Project Structure
+## Project Structure & Module Organization
 
-Hexo static blog powered by the NexT theme.
+This Hexo blog uses the vendored NexT theme.
 
-- `source/_posts/` — blog posts (Markdown, named `YYYY-MM-DD-title.md`)
-- `source/images/` — site assets (hero backgrounds, post images)
-- `source/_data/` — custom overrides: `head.njk`, `body-end.njk`, `styles.styl`
-- `themes/hexo-theme-next-master/` — vendored NexT theme (edit carefully; theme config in `_config.yml`)
-- `tools/sync-posts.js` — syncs posts from external platforms (see `docs/sync-setup.md`)
-- `.github/workflows/` — `deploy.yml` (GitHub Pages) and `sync-posts.yml` (scheduled sync)
+- `source/_posts/`: Markdown articles; `scaffolds/`: post, page, and draft templates.
+- `source/images/`: assets, including imported images under `cnblogs/`.
+- `source/_data/`: custom Nunjucks, CSS, and Stylus overrides.
+- `scripts/`: Hexo rendering hooks and helpers; `source/js/`: browser enhancements.
+- `_config.yml`: site settings; `themes/hexo-theme-next-master/_config.yml`: theme and giscus settings.
+- `tools/sync-posts.js`: cnblogs importer; `docs/sync-setup.md`: synchronization details.
+- `.github/workflows/`: deployment and scheduled imports. `public/` and `db.json` are generated and ignored.
 
-## Build & Development Commands
+## Build, Test, and Development Commands
 
-- `npm run server` — local preview at http://localhost:4000
-- `npm run build` — generate the static site into `public/`
-- `npm run clean` — remove Hexo cache and `public/`
-- `npm run deploy` — manually push to GitHub Pages (normally automatic)
-- `node tools/sync-posts.js` — pull new posts from external platforms
+Use Node.js 20.19+. On Windows, run Hexo/Git commands in PowerShell with the `myblogs` conda environment activated: `conda activate myblogs`.
 
-Environment note: git/hexo commands are normally run in Windows PowerShell with the `myblogs` conda environment.
+- `npm ci`: install dependencies from `package-lock.json`.
+- `npm test`: check rendering, browser integration, assets, and offline import behavior.
+- `npm run server`: preview at `http://localhost:4000`.
+- `npm run build`: generate the site in `public/`.
+- `npm run clean`: remove generated output and Hexo's cache.
+- `npx hexo new "Title"`: create a post using `scaffolds/post.md`.
+- `node tools/sync-posts.js`: fetch external articles and localize images; review resulting changes.
+- `npm run deploy`: publish manually to the configured Git remote. Actions normally handles deployment.
 
 ## Coding Style & Naming Conventions
 
-- Posts: front matter with `title`, `date`, `categories`, `tags`; Chinese content is fine
-- JavaScript: 2-space indent, camelCase; theme JS follows NexT conventions (`/* global NexT, CONFIG */`)
-- YAML config: lowercase keys with underscores (`repo_id`, `category_id`)
-- No linter is configured; keep changes minimal and consistent with existing files
+Use two-space indentation in JavaScript, YAML, and styles. Follow CommonJS imports, single quotes, semicolons, camelCase functions, and uppercase configuration constants. No linter or formatter is configured.
+
+Prefer `YYYY-MM-DD-title.md` for posts. Include explicit `title` and `date` front matter; add `tags` and `categories` as appropriate. Preserve imported `cnblogs_url` metadata for deduplication. Prefer customization in `source/_data/` over broad edits to vendored theme files.
 
 ## Testing Guidelines
 
-No automated test suite exists for this static site. Verify changes with:
-
-1. `npm run build` completes without errors
-2. `npm run server`, then check affected pages in a browser (including dark mode)
+Run `npm test` for the Node.js regression tests in `tools/tests/`; no coverage threshold is configured. Name tests `*.test.js`. Importer tests use temporary files and mocked downloads. Run `npm run build`, then preview affected pages with `npm run server`. Check navigation, images, category/tag pages, mobile layouts, and light/dark appearance when relevant. For importer changes, verify deduplication and preservation of existing content and metadata.
 
 ## Commit & Pull Request Guidelines
 
-- Use Conventional Commits: `feat:`, `fix:`, `chore:`, `build(deps:)`; short Chinese or English descriptions
-- Dependency bumps: `build(deps): bump <pkg> from X to Y`
-- PRs: explain what changed and why, link related issues, and include screenshots for visual changes
-- Pushing to `master` triggers GitHub Actions deployment automatically
+Use history prefixes: `feat:`, `fix:`, `chore:`, and `build(deps):`. Write concise Chinese or English descriptions; dependency updates follow `build(deps): bump <package> from X to Y`.
 
-## Architecture Overview
+PRs should explain the change and motivation, link relevant issues, and report validation. Include screenshots for visual changes. Pushes to `main` or `master` trigger Pages deployment; keep generated output out of commits.
 
-Posts and assets in `source/` are compiled by Hexo into `public/`; `deploy.yml` publishes that to GitHub Pages at https://greeopia.github.io. Comments use giscus (GitHub Discussions), configured in `themes/hexo-theme-next-master/_config.yml` under `giscus:`.
-
-## Notes
-
-- All hexo / git operations must be run in the Windows PowerShell `myblogs` conda environment
-- The blog deploys to `greeopia.github.io`, handled automatically by `.github/workflows/deploy.yml`
-- The GitHub username was changed from `greenpia033-bot` to `greeopia` (2026-08-09); the repository is `greeopia/greeopia.github.io`; avatar and sidebar GitHub links have been updated accordingly
-- Post syncing is triggered on a schedule by `sync-posts.yml`, and can also be run manually
+## Others
+Use subagents with `ccs-deepseek/deepseek-flash` or `ccs-packycode/glm-5.3`, always at `max` effort. Use the full model catalog IDs.

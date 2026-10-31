@@ -310,4 +310,38 @@ header.header { padding-top: 0; }
 
 .site-overview-wrap, .links-of-author, .cc-license, .sidebar-toggle, .sidebar-dimmer, .back-to-top, .post-eof, .sub-menu { display: none !important; }
 .sidebar { display: none; }
+
+/* Keep technical content readable without widening the page on phones. */
+.content-area { min-width: 0; }
+.post-body pre, .post-body figure.highlight {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+}
+.post-body figure.highlight {
+  border: 1px solid rgba(127,127,127,0.2);
+  text-align: left;
+}
+.post-body figure.highlight pre { border-radius: 0; }
+.post-body figure.highlight :is(table, tr) { background: transparent; }
+.post-body svg, .post-body img { max-width: 100%; height: auto; }
+.post-body .katex svg { max-width: none; }
+.post-body .katex-display {
+  max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 0.25em 0;
+}
+.dark-mode .post-body { color: #cbd5e1; }
+.dark-mode .post-body :is(h1, h2, h3, h4, h5, h6),
+.dark-mode .post-title { color: #e5e7eb; }
+.dark-mode .post-body figure.highlight { background: #161b22; color: #c9d1d9; }
+.dark-mode .post-body figure.highlight span { color: inherit; }
+.dark-mode .post-body figure.highlight :is(pre, .code) { background: transparent; color: inherit; }
+.dark-mode .post-body figure.highlight .gutter { background: rgba(127,127,127,0.1); color: #8b949e; }
+.dark-mode .post-body figure.highlight :is(.hljs-comment, .comment) { color: #8b949e; }
+.dark-mode .post-body figure.highlight :is(.hljs-keyword, .keyword, .hljs-built_in, .built_in, .hljs-meta, .meta) { color: #ff7b72; }
+.dark-mode .post-body figure.highlight :is(.hljs-string, .string) { color: #a5d6ff; }
+.dark-mode .post-body figure.highlight :is(.hljs-number, .number, .hljs-variable, .variable, .hljs-literal, .literal) { color: #79c0ff; }
+.dark-mode .post-body figure.highlight :is(.hljs-title, .title) { color: #d2a8ff; }
+@media (max-width: 768px) {
+  .floating-stats { display: none; }
+}
 </style>

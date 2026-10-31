@@ -26,7 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run regression tests
+        run: npm test
+
       - name: Sync external posts
+        id: sync_posts
+        continue-on-error: true
         run: node tools/sync-posts.js
 
       # 用 git status 而不是 git diff：新建的文章是 untracked 文件，
@@ -53,3 +58,9 @@ jobs:
           gh workflow run deploy.yml --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Report incomplete sync
+        if: always() && steps.sync_posts.outcome == 'failure'
+        run: |
+          echo "Some articles or images failed to sync; successful changes were preserved above."
+          exit 1

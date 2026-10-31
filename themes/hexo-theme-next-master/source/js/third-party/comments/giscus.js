@@ -1,5 +1,20 @@
 /* global NexT, CONFIG */
 
+function currentGiscusTheme() {
+  if (CONFIG.giscus.theme !== 'preferred_color_scheme') return CONFIG.giscus.theme;
+  return document.documentElement.classList.contains('dark-mode') ? 'dark' : 'light';
+}
+
+function synchronizeGiscusTheme() {
+  const frame = document.querySelector('iframe.giscus-frame');
+  if (!frame || !frame.contentWindow) return;
+  frame.contentWindow.postMessage({
+    giscus: { setConfig: { theme: currentGiscusTheme() } }
+  }, 'https://giscus.app');
+}
+
+document.addEventListener('blog:themechange', synchronizeGiscusTheme);
+
 document.addEventListener('page:loaded', async () => {
   if (!CONFIG.page.comments) return;
 
@@ -18,11 +33,14 @@ document.addEventListener('page:loaded', async () => {
         reactionsEnabled  : CONFIG.giscus.reactions_enabled ? '1' : '0',
         emitMetadata      : CONFIG.giscus.emit_metadata ? '1' : '0',
         inputPosition     : CONFIG.giscus.input_position,
-        theme             : CONFIG.giscus.theme,
+        theme             : currentGiscusTheme(),
         lang              : CONFIG.giscus.language,
         loading           : CONFIG.giscus.loading
       }
     },
     parentNode: document.querySelector('.giscus')
   });
+  const frame = document.querySelector('iframe.giscus-frame');
+  if (frame) frame.addEventListener('load', synchronizeGiscusTheme, { once: true });
+  synchronizeGiscusTheme();
 });

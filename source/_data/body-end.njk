@@ -84,27 +84,6 @@
   updateRuntime();
   setInterval(updateRuntime, 60000);
 
-  // ── Total word count ──
-  var wordcountEl = document.getElementById('total-wordcount');
-  if (wordcountEl) {
-    var posts = document.querySelectorAll('.post-card-body');
-    var totalChars = 0;
-    posts.forEach(function(card) {
-      var excerpt = card.querySelector('.post-card-excerpt');
-      if (excerpt) totalChars += excerpt.textContent.length;
-    });
-    wordcountEl.textContent = totalChars > 0 ? (totalChars * 3) + '+' : '…';
-  }
-
-  // ── Visitor count ──
-  var visitorEl = document.getElementById('visitor-count');
-  if (visitorEl) {
-    var key = 'blog_visit_count';
-    var count = parseInt(localStorage.getItem(key) || '0', 10) + 1;
-    localStorage.setItem(key, count);
-    visitorEl.textContent = count;
-  }
-
   // ── Floating panels visibility ──
   var floatingStats = document.getElementById('floating-stats');
   var floatingActions = document.getElementById('floating-actions');
@@ -134,6 +113,9 @@
 
   // ── Dark/light mode toggle ──
   var btnTheme = document.getElementById('btn-theme-toggle');
+  function readSavedTheme() {
+    try { return localStorage.getItem('blog_theme'); } catch(e) { return null; }
+  }
   function setTheme(isDark) {
     var html = document.documentElement;
     if (isDark) {
@@ -143,6 +125,7 @@
       html.classList.remove('dark-mode');
       if (btnTheme) btnTheme.querySelector('i').className = 'fa-solid fa-moon';
     }
+    document.dispatchEvent(new CustomEvent('blog:themechange'));
   }
   function applyThemeImages() {
     var isDark = document.documentElement.classList.contains('dark-mode');
@@ -152,7 +135,7 @@
     if (darkImg) darkImg.style.display = isDark ? 'block' : 'none';
   }
   function getPreferredTheme() {
-    var saved = localStorage.getItem('blog_theme');
+    var saved = readSavedTheme();
     if (saved === 'dark') return true;
     if (saved === 'light') return false;
     // no manual preference → detect OS setting
@@ -174,7 +157,7 @@
   // listen for OS theme changes (only when user hasn't set manual preference)
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
-      if (localStorage.getItem('blog_theme')) return; // user has manual preference
+      if (readSavedTheme()) return; // user has manual preference
       setTheme(e.matches);
       applyThemeImages();
     });
@@ -185,7 +168,7 @@
   if (!header) return;
 
   function onScroll() {
-    if (window.scrollY > 50) {
+    if (window.scrollY > 50 || !bgCover) {
       header.classList.add('scrolled');
     } else {
       header.classList.remove('scrolled');
