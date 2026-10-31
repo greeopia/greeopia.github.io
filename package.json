@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@renbaoshuo/markdown-it-katex": "^2.0.2",
-    "axios": "^1.19.0",
+    "axios": "^1.20.0",
     "cheerio": "^1.2.0",
     "hexo": "^8.1.2",
     "hexo-deployer-git": "^4.0.0",
