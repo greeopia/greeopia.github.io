@@ -97,6 +97,31 @@ test('blocked browser storage does not break theme or scrolling initialization',
   assert.equal(header.classList.contains('scrolled'), true);
 });
 
+test('an absent mobile menu button does not stop the remaining theme events', () => {
+  const source = fs.readFileSync(path.join(root, 'themes/hexo-theme-next-master/source/js/next-boot.js'), 'utf8');
+  const handlers = {};
+  const warnings = [];
+  let codeblockTarget;
+  const context = {
+    NexT: { utils: {
+      registerScrollPercent() {}, registerCanIUseTag() {}, updateFooterPosition() {},
+      registerCodeblock(target) { codeblockTarget = target; }
+    } },
+    document: { querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
+    window: { addEventListener: (name, handler) => { handlers[name] = handler; } },
+    location: { hash: '' },
+    console: { warn: (...args) => warnings.push(args) }
+  };
+  vm.runInNewContext(source, context);
+  context.NexT.boot.registerEvents();
+  assert.deepEqual(warnings, []);
+  assert.equal(typeof handlers.hashchange, 'function');
+  assert.equal(typeof handlers['tabs:click'], 'function');
+  const tab = { id: 'example-tab' };
+  handlers['tabs:click']({ target: tab });
+  assert.equal(codeblockTarget, tab);
+});
+
 test('comments use the site theme initially and after a manual theme change', async () => {
   const source = fs.readFileSync(path.join(root, 'themes/hexo-theme-next-master/source/js/third-party/comments/giscus.js'), 'utf8');
   const handlers = {};
