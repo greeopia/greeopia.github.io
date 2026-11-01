@@ -1,7 +1,3 @@
 {%- if theme.busuanzi_count.enable %}
-  {%- if theme.vendors.busuanzi %}
-  <script{{ pjax }} async src="{{ theme.vendors.busuanzi }}"></script>
-  {%- else %}
-  <script{{ pjax }} async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
-  {%- endif %}
+  <script id="visitor-stats-loader" defer src="{{ url_for(theme.js + '/visitor-stats.js') }}" data-busuanzi-src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js" data-busuanzi-allowed-host="greeopia.github.io"></script>
 {%- endif %}
