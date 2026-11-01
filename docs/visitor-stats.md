@@ -1,43 +1,44 @@
 # Visitor statistics
 
-The site uses the official Busuanzi service:
+The site loads the official VerCount client at `https://events.vercount.one/js`.
+It replaces the original Busuanzi JSONP service, whose data endpoint repeatedly
+failed during online verification. The existing Busuanzi-compatible IDs remain
+in the footer; one controller mirrors those values into the desktop floating
+panel without creating another request. Phones display the footer counters.
 
-- `site_pv`: total page views across the site.
-- `site_uv`: visitors under the service's deduplication rules. Consecutive page
-  views from one visitor count once; this is not a guaranteed lifetime count of
-  distinct people.
+## Counting and storage
 
-Both counters appear in the footer on desktop and mobile. Their responsive
-styles and light/dark colors are in `source/_data/head.njk`.
+- `site_pv`: site page views counted by the service.
+- `site_uv`: browsers under VerCount's cookie deduplication rules, not a precise
+  count of distinct people. Clearing cookies or using another browser can create
+  a new visitor.
 
-## Loading and failure behavior
+The official client sends a POST to `https://events.vercount.one/api/v2/log`,
+including the page URL and its new-visitor flag. It uses a first-party cookie for
+UV deduplication and may cache the latest server response in browser storage.
+The local controller never increments, fabricates, or manually seeds totals.
 
-`source/js/visitor-stats.js` loads the official script once. Only
-`https://greeopia.github.io` contacts the service. Local previews display
-`本地预览`; other hosts display `暂不可用` without sending requests.
+VerCount supports migration from Busuanzi, but historical totals cannot be
+promised when the old service is unreachable. Do not use the former local-only
+visitor counter as historical site data.
 
-Offline, blocked, failed, or slow requests display `暂不可用` after at most six
-seconds. The original request can still supply a late result: when all counter
-nodes contain numbers, the controller displays them and stops observing.
-Partial values and placeholders never count as success. A zero returned by the
-service is valid. No browser storage, synthetic fallback total, or automatic
-retry is used.
+## Loading and validation
 
-On 2026-11-01, the official static script returned HTTP 200, while one counting
-API probe with the site's Referer returned HTTP 502 on the tested network path.
-Browser verification also observed a pending JSONP request. These results do not
-establish a global outage. Keep the explicit fallback while the service or
-network is unavailable; changing the frontend cannot reconstruct missed visits.
+Only `https://greeopia.github.io` loads the remote client. Local previews show
+`本地预览` without counting visits. A six-second display timeout provides a clear
+unavailable state; a late valid result can still replace it. The controller loads
+one provider client and never falls back to a second counting service or retries
+automatically. This prevents duplicate page-view requests.
 
-## Validation and references
+`source/_data/head.njk` styles the compact desktop floating panel and responsive
+footer. The loader URL includes a version query so browsers discard the previous
+Busuanzi-specific controller after this migration.
 
-Run `node --test tools/tests/visitor-stats.test.js` for offline regression checks
-covering successful output, local previews, failure, timeouts, late results,
-partial/invalid values, and single script injection. Tests do not call the live
-counting service.
+Run `node --test tools/tests/visitor-stats.test.js` for offline tests covering
+success, mirrored values, failures, local previews, late results, and single
+script injection. Deployment verification must also confirm real numbers arrive
+in the browser; passing mocked tests alone is insufficient.
 
-The official installation article and script still use `busuanzi.ibruce.info`:
-
-- [Official installation article](https://ibruce.info/2015/04/04/busuanzi/)
-- [Official service](https://busuanzi.ibruce.info/)
-- [Official script](https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js)
+References: [official project](https://github.com/EvanNotFound/vercount),
+[official service](https://vercount.one/),
+[official client](https://events.vercount.one/js).

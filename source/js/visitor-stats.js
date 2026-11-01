@@ -10,8 +10,8 @@
 })(typeof globalThis === 'undefined' ? this : globalThis, function() {
   'use strict';
 
-  const OFFICIAL_SCRIPT_URL = 'https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js';
-  const REMOTE_SCRIPT_ID = 'busuanzi-official-script';
+  const OFFICIAL_SCRIPT_URL = 'https://events.vercount.one/js';
+  const REMOTE_SCRIPT_ID = 'visitor-counter-script';
   const DEFAULT_TIMEOUT_MS = 6000;
   const LOADING_TEXT = '正在读取';
   const LOCAL_PREVIEW_TEXT = '本地预览';
@@ -31,6 +31,7 @@
 
     const values = Array.from(root.querySelectorAll('[data-visitor-stats-value]'));
     if (values.length === 0) return null;
+    const mirrors = Array.from(document.querySelectorAll('[data-visitor-stats-mirror]'));
 
     const settings = options || {};
     const timeoutMs = Number.isFinite(settings.timeoutMs)
@@ -38,11 +39,11 @@
       : DEFAULT_TIMEOUT_MS;
     const currentScript = document.currentScript;
     const scriptUrl = settings.scriptUrl
-      || (currentScript && currentScript.dataset && currentScript.dataset.busuanziSrc)
+      || (currentScript && currentScript.dataset && currentScript.dataset.counterSrc)
       || OFFICIAL_SCRIPT_URL;
     const allowedHost = String(
       settings.allowedHost
-      || (currentScript && currentScript.dataset && currentScript.dataset.busuanziAllowedHost)
+      || (currentScript && currentScript.dataset && currentScript.dataset.counterAllowedHost)
       || ''
     ).toLowerCase();
 
@@ -53,6 +54,15 @@
 
     function setState(state) {
       root.setAttribute('data-state', state);
+      for (const mirror of mirrors) {
+        const key = mirror.getAttribute('data-visitor-stats-mirror');
+        const value = values.find(element => element.getAttribute('data-visitor-stats-value') === key);
+        mirror.setAttribute('data-state', state);
+        mirror.textContent = state === 'ready' && value ? value.textContent
+          : state === 'local-preview' ? '预览' : state === 'loading' ? '…' : '—';
+        mirror.title = state === 'unavailable' ? '统计服务暂时未返回数据'
+          : state === 'local-preview' ? '本地预览不计入访问量' : '';
+      }
     }
 
     function setValues(text) {
@@ -90,7 +100,7 @@
 
     function markUnavailable() {
       if (settled || root.getAttribute('data-state') === 'unavailable') return;
-      // The original JSONP request can still complete after the display timeout.
+      // The provider can still supply a result after the display timeout.
       // Keep observing its output until complete numeric values arrive.
       clearPending();
       setValues(UNAVAILABLE_TEXT);

@@ -121,6 +121,18 @@
       <span class="floating-stats-num" id="total-wordcount">{{ site_word_count() }}</span>
       <span class="floating-stats-label">字数</span>
     </div>
+    {%- if theme.busuanzi_count.enable and theme.busuanzi_count.total_visitors %}
+    <div class="floating-stats-item">
+      <span class="floating-stats-num" data-visitor-stats-mirror="site_uv" data-state="loading" title="正在读取总访客" aria-live="polite">…</span>
+      <span class="floating-stats-label">总访客</span>
+    </div>
+    {%- endif %}
+    {%- if theme.busuanzi_count.enable and theme.busuanzi_count.total_views %}
+    <div class="floating-stats-item">
+      <span class="floating-stats-num" data-visitor-stats-mirror="site_pv" data-state="loading" title="正在读取总浏览量" aria-live="polite">…</span>
+      <span class="floating-stats-label">总浏览量</span>
+    </div>
+    {%- endif %}
   </div>
 
   <div class="floating-actions" id="floating-actions">

@@ -853,8 +853,8 @@ firestore:
   apiKey: # Required
   projectId: # Required
 
-# Show Views / Visitors of the website with Busuanzi.
-# For more information: https://ibruce.info/2015/04/04/busuanzi/
+# Show website views / visitors with VerCount's Busuanzi-compatible client.
+# For more information: https://github.com/EvanNotFound/vercount
 busuanzi_count:
   enable: true
   total_visitors: true

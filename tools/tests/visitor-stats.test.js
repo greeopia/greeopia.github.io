@@ -11,10 +11,23 @@ const {
 
 const root = path.resolve(__dirname, '../..');
 
+function fakeElement(key, field = 'data-visitor-stats-value') {
+  const attributes = new Map([[field, key]]);
+  return {
+    textContent: '正在读取',
+    getAttribute(name) { return attributes.get(name) || null; },
+    setAttribute(name, value) { attributes.set(name, value); }
+  };
+}
+
 function fakeWindow(options = {}) {
   const values = [
-    { textContent: '正在读取' },
-    { textContent: '正在读取' }
+    fakeElement('site_uv'),
+    fakeElement('site_pv')
+  ];
+  const mirrors = [
+    fakeElement('site_uv', 'data-visitor-stats-mirror'),
+    fakeElement('site_pv', 'data-visitor-stats-mirror')
   ];
   const containers = {
     busuanzi_container_site_uv: { style: { display: 'inline' } },
@@ -33,12 +46,15 @@ function fakeWindow(options = {}) {
   const document = {
     currentScript: {
       dataset: {
-        busuanziAllowedHost: 'greeopia.github.io',
-        busuanziSrc: 'https://busuanzi.example.test/counter.js'
+        counterAllowedHost: 'greeopia.github.io',
+        counterSrc: 'https://vercount.example.test/counter.js'
       }
     },
     querySelector(selector) {
       return selector === '[data-visitor-stats]' ? statisticsRoot : null;
+    },
+    querySelectorAll(selector) {
+      return selector === '[data-visitor-stats-mirror]' ? mirrors : [];
     },
     getElementById(id) {
       return containers[id] || scripts.find(script => script.id === id) || null;
@@ -90,6 +106,7 @@ function fakeWindow(options = {}) {
     attributes,
     containers,
     listeners,
+    mirrors,
     observer,
     scripts,
     statisticsRoot,
@@ -99,7 +116,7 @@ function fakeWindow(options = {}) {
   };
 }
 
-test('Busuanzi remains a single official-service integration', () => {
+test('VerCount supplies one compatible counter request for the footer and floating panel', () => {
   const config = fs.readFileSync(
     path.join(root, 'themes/hexo-theme-next-master/_config.yml'),
     'utf8'
@@ -123,7 +140,8 @@ test('Busuanzi remains a single official-service integration', () => {
   ]) {
     assert.equal(footer.match(new RegExp(`id="${id}"`, 'g')).length, 1, id);
   }
-  assert.match(footer, /data-visitor-stats-value>正在读取</);
+  assert.match(footer, /data-visitor-stats-value="site_uv">正在读取</);
+  assert.match(footer, /data-visitor-stats-value="site_pv">正在读取</);
   assert.match(footer, /style="display:inline"/);
 
   const statistics = fs.readFileSync(
@@ -133,9 +151,16 @@ test('Busuanzi remains a single official-service integration', () => {
   const loaderTag = statistics.match(/<script\b[^>]*><\/script>/);
   assert.ok(loaderTag);
   assert.match(statistics, /visitor-stats\.js/);
-  assert.match(statistics, /data-busuanzi-src="https:\/\/busuanzi\.ibruce\.info/);
-  assert.match(statistics, /data-busuanzi-allowed-host="greeopia\.github\.io"/);
-  assert.doesNotMatch(loaderTag[0], /\ssrc="https:\/\/busuanzi/);
+  assert.match(statistics, /data-counter-src="https:\/\/events\.vercount\.one\/js"/);
+  assert.match(statistics, /data-counter-allowed-host="greeopia\.github\.io"/);
+  assert.doesNotMatch(loaderTag[0], /\ssrc="https:\/\//);
+  assert.doesNotMatch(statistics, /busuanzi\.ibruce\.info/);
+
+  const layout = fs.readFileSync(path.join(root, 'themes/hexo-theme-next-master/layout/_layout.njk'), 'utf8');
+  for (const key of ['site_uv', 'site_pv']) {
+    assert.equal(layout.match(new RegExp(`data-visitor-stats-mirror="${key}"`, 'g')).length, 1);
+    assert.doesNotMatch(layout, new RegExp(`id="busuanzi_value_${key}"`));
+  }
 });
 
 test('local preview hosts never request the production statistics service', () => {
@@ -151,11 +176,12 @@ test('local preview hosts never request the production statistics service', () =
 
     assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'local-preview', location.hostname);
     assert.deepEqual(fake.values.map(item => item.textContent), ['本地预览', '本地预览']);
+    assert.deepEqual(fake.mirrors.map(item => item.textContent), ['预览', '预览']);
     assert.equal(fake.scripts.length, 0, location.hostname);
   }
 });
 
-test('non-production hosts fail closed without contacting Busuanzi', () => {
+test('non-production hosts fail closed without contacting the counting service', () => {
   const fake = fakeWindow({
     location: { protocol: 'https:', hostname: 'preview.example.test' }
   });
@@ -163,6 +189,7 @@ test('non-production hosts fail closed without contacting Busuanzi', () => {
 
   assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable');
   assert.deepEqual(fake.values.map(item => item.textContent), ['暂不可用', '暂不可用']);
+  assert.deepEqual(fake.mirrors.map(item => item.textContent), ['—', '—']);
   assert.equal(fake.scripts.length, 0);
 });
 
@@ -182,13 +209,16 @@ test('the official script is injected once and successful values become ready', 
 
   assert.equal(install(fake.window), runtime);
   assert.equal(fake.scripts.length, 1);
-  assert.equal(fake.scripts[0].src, 'https://busuanzi.example.test/counter.js');
+  assert.equal(fake.scripts[0].src, 'https://vercount.example.test/counter.js');
+  assert.deepEqual(fake.mirrors.map(item => item.textContent), ['…', '…']);
   assert.equal(fake.timers[0].delay, 6000);
 
   fake.values[0].textContent = '1,234';
   fake.values[1].textContent = '5,678';
   assert.equal(runtime.check(), true);
   assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'ready');
+  assert.deepEqual(fake.mirrors.map(item => item.textContent), ['1,234', '5,678']);
+  assert.ok(fake.mirrors.every(item => item.getAttribute('data-state') === 'ready'));
   assert.equal(fake.window.observer.disconnected, true);
   assert.equal(fake.timers[0].cleared, true);
 });
