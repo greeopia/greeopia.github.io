@@ -68,6 +68,9 @@ function fakeWindow(options = {}) {
 
       observe() {}
       disconnect() { this.disconnected = true; }
+      notify() {
+        if (!this.disconnected) this.callback();
+      }
     },
     setTimeout(callback, delay) {
       timers.push({ callback, delay, cleared: false });
@@ -206,4 +209,69 @@ test('script errors and data timeouts show unavailable instead of zero', () => {
   assert.deepEqual(timedOut.values.map(item => item.textContent), ['暂不可用', '暂不可用']);
   assert.equal(timedOut.containers.busuanzi_container_site_uv.style.display, 'inline');
   assert.equal(timedOut.containers.busuanzi_container_site_pv.style.display, 'inline');
+});
+
+test('late official values recover after timeout, script error, or going offline without retrying', () => {
+  for (const failure of ['timeout', 'script-error', 'offline']) {
+    const fake = fakeWindow();
+    const runtime = install(fake.window);
+    if (failure === 'timeout') fake.timers[0].callback();
+    if (failure === 'script-error') fake.scripts[0].onerror();
+    if (failure === 'offline') fake.listeners.offline();
+
+    assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable', failure);
+    assert.equal(fake.window.observer.disconnected, false, failure);
+    assert.equal(fake.timers[0].cleared, true, failure);
+    assert.equal(fake.listeners.offline, undefined, failure);
+
+    fake.values[0].textContent = '1,234';
+    fake.values[1].textContent = '5,678';
+    fake.window.observer.notify();
+
+    assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'ready', failure);
+    assert.deepEqual(fake.values.map(item => item.textContent), ['1,234', '5,678']);
+    assert.equal(fake.window.observer.disconnected, true, failure);
+
+    fake.scripts[0].onerror();
+    fake.timers[0].callback();
+    runtime.start();
+    assert.equal(install(fake.window), runtime);
+    assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'ready', failure);
+    assert.equal(fake.scripts.length, 1, failure);
+    assert.equal(fake.timers.length, 1, failure);
+  }
+});
+
+test('unavailable needs complete numeric output before recovering and never supplies a fallback count', () => {
+  const fake = fakeWindow();
+  install(fake.window);
+  fake.timers[0].callback();
+
+  // Our own placeholder mutations must not trigger success or a second request.
+  fake.window.observer.notify();
+  assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable');
+  assert.deepEqual(fake.values.map(item => item.textContent), ['暂不可用', '暂不可用']);
+
+  fake.values[0].textContent = '12';
+  fake.window.observer.notify();
+  assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable');
+  assert.equal(fake.window.observer.disconnected, false);
+
+  // A duplicate failure signal must not erase a result that arrived in stages.
+  fake.scripts[0].onerror();
+  assert.equal(fake.values[0].textContent, '12');
+
+  for (const value of ['', 'undefined', 'NaN', '-1', '1.5']) {
+    fake.values[1].textContent = value;
+    fake.window.observer.notify();
+    assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable', value);
+  }
+
+  // A literal zero written by the service is valid; the controller creates none.
+  fake.values[1].textContent = '0';
+  fake.window.observer.notify();
+  assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'ready');
+  assert.deepEqual(fake.values.map(item => item.textContent), ['12', '0']);
+  assert.equal(fake.window.observer.disconnected, true);
+  assert.equal(fake.scripts.length, 1);
 });

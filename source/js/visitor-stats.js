@@ -75,16 +75,24 @@
       }
     }
 
-    function stopWatch() {
-      if (observer) observer.disconnect();
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    function clearPending() {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       removeOfflineListener();
     }
 
+    function stopWatch() {
+      if (observer) observer.disconnect();
+      clearPending();
+    }
+
     function markUnavailable() {
-      if (settled || root.getAttribute('data-state') === 'ready') return;
-      settled = true;
-      stopWatch();
+      if (settled || root.getAttribute('data-state') === 'unavailable') return;
+      // The original JSONP request can still complete after the display timeout.
+      // Keep observing its output until complete numeric values arrive.
+      clearPending();
       setValues(UNAVAILABLE_TEXT);
       showContainers();
       setState('unavailable');
