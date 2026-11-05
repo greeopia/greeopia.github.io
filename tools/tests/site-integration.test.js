@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { before, test } = require('node:test');
@@ -13,6 +14,45 @@ let site;
 before(async () => {
   site = new Hexo(root, { silent: true });
   await site.init();
+});
+
+test('fresh checkouts with different file mtimes preserve explicit dates and publication-date fallback', async () => {
+  assert.equal(site.config.updated_option, 'date');
+  for (const modified of ['2030-01-01T00:00:00Z', '2035-01-01T00:00:00Z']) {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hexo-post-dates-'));
+    let fixture;
+    try {
+      const postsDir = path.join(fixtureRoot, 'source', '_posts');
+      fs.mkdirSync(postsDir, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRoot, 'package.json'), JSON.stringify({
+        name: 'post-date-test', version: '1.0.0', hexo: { version: site.version },
+      }));
+      fs.writeFileSync(path.join(fixtureRoot, '_config.yml'), JSON.stringify({
+        theme: false, timezone: 'Asia/Shanghai', updated_option: site.config.updated_option,
+      }));
+      for (const [name, extra] of [['fallback', ''], ['explicit', 'updated: 2026-11-04 00:25:00\n']]) {
+        const filepath = path.join(postsDir, `${name}.md`);
+        fs.writeFileSync(filepath, `---\ntitle: ${name}\ndate: 2026-07-05 09:48:53\n${extra}---\n\nBody.\n`);
+        fs.utimesSync(filepath, new Date(modified), new Date(modified));
+      }
+      fixture = new Hexo(fixtureRoot, { silent: true });
+      await fixture.init();
+      assert.equal(fixture.config.updated_option, 'date');
+      fixture.extend.renderer.register('md', 'html', data => data.text, true);
+      await fixture.load();
+      const posts = fixture.model('Post');
+      const fallback = posts.findOne({ title: 'fallback' });
+      const explicit = posts.findOne({ title: 'explicit' });
+      assert.equal(fallback.updated.valueOf(), Date.parse('2026-07-05T09:48:53+08:00'));
+      assert.equal(explicit.updated.valueOf(), Date.parse('2026-11-04T00:25:00+08:00'));
+    } finally {
+      if (fixture) await fixture.exit();
+      const target = path.resolve(fixtureRoot);
+      assert.equal(path.dirname(target), path.resolve(os.tmpdir()));
+      assert.ok(path.basename(target).startsWith('hexo-post-dates-'));
+      fs.rmSync(target, { recursive: true, force: true });
+    }
+  }
 });
 
 function classes() {

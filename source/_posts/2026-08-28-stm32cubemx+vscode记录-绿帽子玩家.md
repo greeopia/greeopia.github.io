@@ -8,6 +8,7 @@ date: 2026-08-28 21:55:00
 cnblogs_url: https://www.cnblogs.com/greenpia/p/22745774
 cnblogs_source_hash: "20f285c2c7a0db89f23739b424f76355ec05030abddaac01d445e853fe97b66a"
 cnblogs_content_hash: "9f539eec311f8157c9a3c905296b76aada696a75f45a5cc556afd0baf7f8808a"
+updated: "2026-08-28 21:55:00"
 ---
 
 1.环境配置 ai辅助配置 使用embedded-dev.embedded-c-toolchain，作者使用MIT协议但是没有建立一个公开的仓库（至少我没找到） 修改了bug的文件会放在评论区的github仓库 被迫学习typescript 这会变得非常简单： 自动检测还是很爽的 聪明的你肯定也发现了：什么！CXX executable test2.elf ! 由于cubemx构式的设置（无cubeide时）它不准你写cpp，可是lz有STL狂热！（对应过来应该是ETL狂热）那么我们怎么办呢： 2.折腾使用cpp 有这几步： 1.cubemx勾选Cmake...

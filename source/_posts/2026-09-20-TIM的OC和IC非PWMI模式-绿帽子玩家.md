@@ -8,6 +8,7 @@ date: 2026-09-20 06:35:00
 cnblogs_url: https://www.cnblogs.com/greenpia/p/23048229
 cnblogs_source_hash: "f937c3633f0b5a1fff11b76c5ce273ca71fe56e1c52e06b608588d8d7932e771"
 cnblogs_content_hash: "1ddd1f2b26cdef5e5ef7bc5906cfd99cd7d8f7fe9a03d01b1a6ac22c1a1b6c20"
+updated: "2026-09-20 14:54:00"
 ---
 
 tim其它...(高级的特性？) PWM 频率与占空比 $$PWM_f = TIM_f/((PSC+1)*(ARR+1))$$ $$Duty = CCR/(ARR+1)$$ // 所以一般普遍来说 改PSC和CCR会好一些 // void TIM_PrescalerConfig(TIM_TypeDef* TIMx, uint16_t Prescaler, uint16_t TIM_PSCReloadMode); // TIM_PSCReloadMode can be TIM_PSCReloadMode_Update or TIM_PSCReloadMode_Immediate //...

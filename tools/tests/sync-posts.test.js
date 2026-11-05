@@ -12,6 +12,7 @@ const {
   buildCnblogsPost,
   buildUpdatedPostContent,
   contentHash,
+  extractCnblogsModifiedDate,
   extractShanghaiDate,
   findPostByCnblogsUrl,
   formatShanghaiDate,
@@ -757,6 +758,7 @@ test('failed images retry without source-hash churn and later remote updates sta
     assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 1, skipped: 0, failed: 0 });
     const saved = fs.readFileSync(filepath, 'utf8');
     assert.equal(postField(saved, 'cnblogs_source_hash'), postField(first, 'cnblogs_source_hash'));
+    assert.equal(postField(saved, 'updated'), postField(first, 'updated'));
     assert.equal(postField(saved, 'cnblogs_content_hash'), contentHash(postBody(saved)));
     assert.match(saved, /src="\/images\/cnblogs\//);
     assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
@@ -828,6 +830,85 @@ test('updates replace old appended imported HTML without duplicating local intro
   assert.equal((updated.match(/<!-- more -->/g) || []).length, 1);
   assert.match(updated, /Second remote body\.\n<!-- more -->\n\n<p>Second remote body\.<\/p>/);
   assert.doesNotMatch(updated, /First remote body/);
+});
+
+function datedPostPage(body, link, modifiedDate) {
+  return `<script type="application/ld&#x2B;json">${JSON.stringify({
+    '@type': 'BlogPosting', '@id': link, dateModified: modifiedDate,
+  })}</script>${postPage(body)}`;
+}
+
+test('source modification dates support encoded offsets and only use the matching article metadata', () => {
+  const link = 'https://www.cnblogs.com/greenpia/p/2';
+  const page = '<script type="application/ld+json">broken JSON</script>'
+    + '<script type="application/ld+json">' + JSON.stringify({ '@graph': [
+      { '@type': 'WebSite', dateModified: '2030-01-01' },
+      { '@type': 'BlogPosting', '@id': 'https://www.cnblogs.com/greenpia/p/3', dateModified: '2030-02-01' },
+      { '@type': ['Article', 'BlogPosting'], '@id': link, dateModified: '2026-11-04T00:25:00.0000000&#x2B;08:00' },
+    ] }) + '</script>';
+  assert.equal(extractCnblogsModifiedDate(page, link), '2026-11-04 00:25:00');
+  assert.equal(extractCnblogsModifiedDate(datedPostPage('', link, '2026-11-03T16:25:00Z'), link), '2026-11-04 00:25:00');
+  assert.equal(extractCnblogsModifiedDate(datedPostPage('', link, 'not-a-date'), link), null);
+  assert.equal(extractCnblogsModifiedDate(datedPostPage('', link, ''), link), null);
+  assert.equal(extractCnblogsModifiedDate('<p>dateModified: 2030-01-01</p>', link), null);
+});
+
+test('new articles use the source modification date and missing metadata falls back to publication', () => {
+  const item = syncItem('https://www.cnblogs.com/greenpia/p/2');
+  const body = '<p>Body.</p>';
+  const post = buildCnblogsPost({ ...item, modifiedDate: '2026-11-03T16:25:00Z' }, body);
+  assert.equal(postField(post, 'updated'), '2026-11-04 00:25:00');
+  assert.equal(postField(post, 'date'), '2026-07-17 08:44:00');
+  assert.equal(postField(buildCnblogsPost(item, body), 'updated'), '2026-07-17 08:44:00');
+  assert.equal(postField(buildCnblogsPost({ ...item, modifiedDate: 'invalid' }, body), 'updated'), '2026-07-17 08:44:00');
+});
+
+test('unchanged content recovers its source date once without rewriting body or accepting local edits', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    const body = '<p>Original.</p>';
+    const existing = buildCnblogsPost(syncItem(link), body).replace(/^updated:.*\n/m, '') + '<p>Local note.</p>\n';
+    const filepath = writePost(postsDir, 'stable.md', existing);
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return datedPostPage(body, link, '2026-11-04T00:25:00+08:00'); },
+    };
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 1, skipped: 0, failed: 0 });
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.equal(postField(saved, 'updated'), '2026-11-04 00:25:00');
+    assert.equal(postBody(saved), postBody(existing));
+    assert.equal(postField(saved, 'cnblogs_content_hash'), postField(existing, 'cnblogs_content_hash'));
+    fs.utimesSync(filepath, new Date('2020-01-01'), new Date('2020-01-01'));
+    const mtime = fs.statSync(filepath).mtimeMs;
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
+    assert.equal(fs.statSync(filepath).mtimeMs, mtime);
+    assert.equal(fs.readFileSync(filepath, 'utf8'), saved);
+    const result = await syncCnblogs({ ...options,
+      async fetchPage() { return datedPostPage('<p>Remote edit.</p>', link, '2026-11-05T10:00:00+08:00'); },
+    });
+    assert.equal(result.failed, 1);
+    assert.equal(fs.readFileSync(filepath, 'utf8'), saved);
+  });
+});
+
+test('body updates advance to the source modification time and absent dates preserve the last known value', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    const item = { ...syncItem(link), modifiedDate: '2026-07-17 10:00:00' };
+    const filepath = writePost(postsDir, 'stable.md', buildCnblogsPost(item, '<p>Before.</p>'));
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return datedPostPage('<p>After.</p>', link, '2026-11-04T00:25:00+08:00'); },
+    };
+    assert.equal((await syncCnblogs(options)).updated, 1);
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.equal(postField(saved, 'updated'), '2026-11-04 00:25:00');
+    assert.match(saved, /<p>After\.<\/p>/);
+    assert.equal((await syncCnblogs({ ...options, async fetchPage() { return postPage('<p>Another edit.</p>'); } })).updated, 1);
+    assert.equal(postField(fs.readFileSync(filepath, 'utf8'), 'updated'), '2026-11-04 00:25:00');
+  });
 });
 
 test('importing the module does not start a sync', async () => {

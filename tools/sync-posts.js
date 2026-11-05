@@ -312,6 +312,16 @@ function renderExistingPost(existingContent, raw, body) {
   return `---\n${raw}\n---\n\n${body.trimEnd()}\n`.replace(/\r?\n/g, eol);
 }
 
+function updateModifiedDate(existingContent, item) {
+  const date = item.modifiedDate ? formatShanghaiDate(item.modifiedDate) : null;
+  const existing = parseFrontmatter(existingContent);
+  if (!date || !existing || frontmatterValue(existing.raw, 'updated') === date) return existingContent;
+  const eol = existingContent.includes('\r\n') ? '\r\n' : '\n';
+  const raw = upsertFrontmatterField(existing.raw, 'updated', yamlScalar(date)).replace(/\r?\n/g, eol);
+  // 只替换头部，日期修复不重写正文或推进正文同步基线。
+  return existingContent.replace(/^---\r?\n[\s\S]*?\r?\n---/, () => `---${eol}${raw}${eol}---`);
+}
+
 function buildCnblogsPost(item, body, sourceHash = body ? contentHash(body) : null) {
   const dateStr = parseCnblogsDate(item.pubDate);
   const bodyContent = body ? buildFullBody(item, body) : buildRssBody(item);
@@ -327,6 +337,7 @@ function buildCnblogsPost(item, body, sourceHash = body ? contentHash(body) : nu
     'categories:',
     `  - ${yamlScalar('博客园')}`,
     `date: ${yamlScalar(dateStr)}`,
+    `updated: ${yamlScalar((item.modifiedDate && formatShanghaiDate(item.modifiedDate)) || dateStr)}`,
     `cnblogs_url: ${yamlScalar(item.link)}`,
     `cnblogs_full: ${body ? 'true' : 'false'}`,
     ...(body ? [
@@ -345,7 +356,7 @@ function buildUpdatedPostContent(existingContent, item, body, sourceHash = body 
   const existing = parseFrontmatter(existingContent);
   if (!existing) return buildCnblogsPost(item, body, sourceHash);
   if (hasFullContent(existingContent)) {
-    if (frontmatterValue(existing.raw, 'cnblogs_source_hash') === sourceHash) return existingContent;
+    if (frontmatterValue(existing.raw, 'cnblogs_source_hash') === sourceHash) return updateModifiedDate(existingContent, item);
     assertSafeFullUpdate(existing, sourceHash);
   }
 
@@ -373,12 +384,34 @@ ${body || ''}`;
 
   raw = upsertFrontmatterField(raw, 'cnblogs_source_hash', yamlScalar(sourceHash));
   raw = upsertFrontmatterField(raw, 'cnblogs_content_hash', yamlScalar(contentHash(bodyContent)));
-  return renderExistingPost(existingContent, raw, bodyContent);
+  return updateModifiedDate(renderExistingPost(existingContent, raw, bodyContent), item);
 }
 
 // ============================================================
 //  博客园正文
 // ============================================================
+
+function extractCnblogsModifiedDate(html, itemLink = null) {
+  const $ = load(String(html));
+  for (const script of $('script[type="application/ld+json"]').toArray()) {
+    let data;
+    try { data = JSON.parse($(script).text()); } catch { continue; }
+    const nodes = Array.isArray(data) ? [...data] : [data];
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (!node || typeof node !== 'object') continue;
+      if (Array.isArray(node['@graph'])) nodes.push(...node['@graph']);
+      const types = Array.isArray(node['@type']) ? node['@type'] : [node['@type']];
+      if (!types.some(type => type === 'BlogPosting' || type === 'Article')) continue;
+      const identity = node['@id'] || node.url;
+      if (itemLink && identity && !sameCnblogsPost(identity, itemLink)) continue;
+      if (typeof node.dateModified !== 'string' || !node.dateModified.trim()) continue;
+      const date = formatShanghaiDate(node.dateModified);
+      if (date) return date;
+    }
+  }
+  return null;
+}
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -626,19 +659,21 @@ async function localizePostImages(html, postId, options = {}) {
   return result;
 }
 
-async function retryExistingPostImages(existing, postId, imageOptions) {
+async function refreshExistingPost(existing, postId, imageOptions, item = {}) {
   if (!hasFullContent(existing.content)) return false;
   let localized = await localizePostImages(existing.content, postId, imageOptions);
-  if (localized === existing.content) return false;
+  const imagesChanged = localized !== existing.content;
   const frontmatter = parseFrontmatter(existing.content);
   // 图片重试不能把手改内容误认成上次导入的正文。
-  if (frontmatterValue(frontmatter.raw, 'cnblogs_content_hash') === contentHash(frontmatter.body)) {
+  if (imagesChanged && frontmatterValue(frontmatter.raw, 'cnblogs_content_hash') === contentHash(frontmatter.body)) {
     const parsed = parseFrontmatter(localized);
     const raw = upsertFrontmatterField(parsed.raw, 'cnblogs_content_hash', yamlScalar(contentHash(parsed.body)));
     localized = renderExistingPost(localized, raw, parsed.body);
   }
+  localized = updateModifiedDate(localized, item);
+  if (localized === existing.content) return false;
   writeTextAtomically(existing.filepath, localized);
-  console.log('       🖼 已最小替换远程图片引用\n');
+  console.log(imagesChanged ? '       🖼 已最小替换远程图片引用\n' : '       ✏ 已校正文章更新时间\n');
   return true;
 }
 
@@ -720,6 +755,7 @@ async function syncCnblogs(options = {}) {
       const pageHtml = await fetchPage(item.link);
       let body = null;
       if (pageHtml) {
+        item.modifiedDate = extractCnblogsModifiedDate(pageHtml, item.link);
         body = extractCnblogsBody(pageHtml);
         if (body) {
           console.log(`       ✓ 正文提取成功 (${body.length} 字符)`);
@@ -731,7 +767,7 @@ async function syncCnblogs(options = {}) {
       if (!body) {
         itemFailed = true;
         if (existing) {
-          if (await retryExistingPostImages(existing, postId, imageOptions)) updated++;
+          if (await refreshExistingPost(existing, postId, imageOptions)) updated++;
           console.warn('       ⚠ 无法抓取正文，保留已有正文\n');
           continue;
         }
@@ -743,7 +779,7 @@ async function syncCnblogs(options = {}) {
       if (existing && hasFullContent(existing.content)) {
         const frontmatter = parseFrontmatter(existing.content);
         if (frontmatterValue(frontmatter.raw, 'cnblogs_source_hash') === sourceHash) {
-          if (await retryExistingPostImages(existing, postId, imageOptions)) {
+          if (await refreshExistingPost(existing, postId, imageOptions, item)) {
             updated++;
           } else {
             if (!itemFailed) skipped++;
@@ -812,6 +848,7 @@ module.exports = {
   buildUpdatedPostContent,
   contentHash,
   extractCnblogsBody,
+  extractCnblogsModifiedDate,
   extractCnblogsPostId,
   extractShanghaiDate,
   findPostByCnblogsUrl,
