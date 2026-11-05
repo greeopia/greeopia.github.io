@@ -11,6 +11,7 @@ const { promisify } = require('node:util');
 const {
   buildCnblogsPost,
   buildUpdatedPostContent,
+  contentHash,
   extractShanghaiDate,
   findPostByCnblogsUrl,
   formatShanghaiDate,
@@ -558,13 +559,13 @@ test('failed image localization reports one failed article and preserves local e
   const imagesDir = makeTempDir();
   try {
     const link = 'https://www.cnblogs.com/greenpia/p/2';
-    const existing = `---\ntitle: Local title\ncnblogs_url: ${link}\ncnblogs_full: true\n---\n\n`
-      + '<p>Manually edited body.</p>\n<img src="https://img.cnblogs.com/photo.png">\n';
+    const body = '<p>Imported body.</p>\n<img src="https://img.cnblogs.com/photo.png">';
+    const existing = buildCnblogsPost(syncItem(link, 'Local title'), body) + '<p>Manually edited body.</p>\n';
     const filepath = writePost(postsDir, 'old.md', existing);
     const options = {
       postsDir, imagesDir, delayMs: 0,
       async fetchRss() { return singlePostFeed(link); },
-      async fetchPage() { assert.fail('A complete local post must not be fetched again'); },
+      async fetchPage() { return postPage(body); },
       async downloadImage() { return { ok: false }; },
     };
     const first = await syncCnblogs(options);
@@ -576,13 +577,257 @@ test('failed image localization reports one failed article and preserves local e
     });
     assert.deepEqual(second, { created: 0, updated: 1, skipped: 0, failed: 0 });
     const saved = fs.readFileSync(filepath, 'utf8');
-    assert.match(saved, /^title: Local title$/m);
+    assert.match(saved, /^title: "Local title"$/m);
     assert.match(saved, /Manually edited body\./);
     assert.match(saved, /\/images\/cnblogs\//);
+    assert.equal(postField(saved, 'cnblogs_content_hash'), postField(existing, 'cnblogs_content_hash'));
+    const third = await syncCnblogs({ ...options, async fetchPage() { return postPage('<p>Remote edit.</p>'); } });
+    assert.deepEqual(third, { created: 0, updated: 0, skipped: 0, failed: 1 });
+    assert.equal(fs.readFileSync(filepath, 'utf8'), saved);
   } finally {
     cleanup(postsDir);
     cleanup(imagesDir);
   }
+});
+
+function syncItem(link, title = 'Remote title') {
+  return { title, link, pubDate: '2026-07-17T00:44:00Z', categories: ['Remote tag'] };
+}
+
+function postPage(body) {
+  return `<div id="cnblogs_post_body">${body}</div><div id="blog_post_info_block"></div>`;
+}
+
+function postBody(content) {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '').replace(/^\r?\n/, '');
+}
+
+function postField(content, name) {
+  const match = content.match(new RegExp(`^${name}: (.+)$`, 'm'));
+  return match ? JSON.parse(match[1]) : null;
+}
+
+async function withSyncDirs(run) {
+  const postsDir = makeTempDir();
+  const imagesDir = makeTempDir();
+  try {
+    await run({ postsDir, imagesDir });
+  } finally {
+    cleanup(postsDir);
+    cleanup(imagesDir);
+  }
+}
+
+test('unchanged RSS still refreshes full posts and preserves URLs, metadata and no-op mtimes', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    let body = '<p>Before remote edit.</p>';
+    let fetches = 0;
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { fetches++; return postPage(body); },
+    };
+    assert.deepEqual(await syncCnblogs(options), { created: 1, updated: 0, skipped: 0, failed: 0 });
+    const filename = fs.readdirSync(postsDir)[0];
+    const filepath = path.join(postsDir, filename);
+    const original = fs.readFileSync(filepath, 'utf8');
+    const local = original.replace('title: "good"', 'title: "Local title"')
+      .replace('tags: []', 'tags: [Local]')
+      .replace('date: "2026-07-17 08:44:00"', 'date: "2020-01-02 03:04:05"')
+      .replace('cnblogs_url:', 'slug: stable-slug\npermalink: stable/path/\ncustom: keep\ncnblogs_url:');
+    fs.writeFileSync(filepath, local);
+    body = '<p>After remote edit.</p>';
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 1, skipped: 0, failed: 0 });
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.deepEqual(fs.readdirSync(postsDir), [filename]);
+    assert.match(saved, /title: "Local title"/);
+    assert.match(saved, /tags: \[Local\]/);
+    assert.match(saved, /date: "2020-01-02 03:04:05"/);
+    assert.match(saved, /slug: stable-slug\npermalink: stable\/path\/\ncustom: keep/);
+    assert.match(saved, /After remote edit\.\n<!-- more -->\n\n<p>After remote edit\.<\/p>/);
+    assert.doesNotMatch(saved, /Before remote edit/);
+    assert.equal(postField(saved, 'cnblogs_content_hash'), contentHash(postBody(saved)));
+    fs.utimesSync(filepath, new Date('2020-01-01'), new Date('2020-01-01'));
+    const mtime = fs.statSync(filepath).mtimeMs;
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
+    assert.equal(fs.readFileSync(filepath, 'utf8'), saved);
+    assert.equal(fs.statSync(filepath).mtimeMs, mtime);
+    assert.equal(fetches, 3);
+  });
+});
+
+test('local edits survive an unchanged remote and block later conflicting remote edits', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    let body = '<p>Original.</p>';
+    const local = buildCnblogsPost(syncItem(link), body) + '<p>Local addition.</p>\n';
+    const filepath = writePost(postsDir, 'stable.md', local);
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return postPage(body); },
+      async downloadImage() { assert.fail('Conflicting content must be rejected before downloads'); },
+    };
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
+    assert.equal(fs.readFileSync(filepath, 'utf8'), local);
+    body = '<p>Remote edit.</p><img src="https://img.cnblogs.com/new.png">';
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 0, failed: 1 });
+    assert.equal(fs.readFileSync(filepath, 'utf8'), local);
+  });
+});
+
+test('matching legacy posts establish a baseline and retain custom summaries on future updates', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    let body = '<p>Original.</p>';
+    const legacy = `---\ntitle: Legacy\ndate: 2020-01-02\ncnblogs_url: ${link}\n---\n\nCustom summary.\n<!-- more -->\n\n${body}\n`;
+    const filepath = writePost(postsDir, 'legacy.md', legacy);
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return postPage(body); },
+    };
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 1, skipped: 0, failed: 0 });
+    const baselined = fs.readFileSync(filepath, 'utf8');
+    assert.equal(postBody(baselined), postBody(legacy));
+    assert.equal(postField(baselined, 'cnblogs_source_hash'), contentHash(body));
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
+    body = '<p>New remote body.</p>';
+    assert.equal((await syncCnblogs(options)).updated, 1);
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.match(saved, /Custom summary\.\n<!-- more -->\n\n<p>New remote body\.<\/p>/);
+    assert.match(saved, /title: Legacy\ndate: 2020-01-02/);
+  });
+});
+
+test('unverified legacy differences are reported without overwriting the file', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    const local = `---\ncnblogs_url: ${link}\ncnblogs_full: true\n---\n\n<p>Unknown local version.</p>\n`;
+    const filepath = writePost(postsDir, 'unverified.md', local);
+    const result = await syncCnblogs({
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return postPage('<p>Different remote version.</p>'); },
+    });
+    assert.deepEqual(result, { created: 0, updated: 0, skipped: 0, failed: 1 });
+    assert.equal(fs.readFileSync(filepath, 'utf8'), local);
+  });
+});
+
+test('legacy baseline creation applies downloaded images in the same run', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    const body = '<p>Original.</p><img src="https://img.cnblogs.com/photo.png">';
+    const legacy = `---\ncnblogs_url: ${link}\ncnblogs_full: true\n---\n\n${body}\n`;
+    const filepath = writePost(postsDir, 'legacy.md', legacy);
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return postPage(body); },
+      async downloadImage() { return { ok: true, buffer: PNG, ext: '.png' }; },
+    };
+    assert.equal((await syncCnblogs(options)).updated, 1);
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.match(saved, /src="\/images\/cnblogs\//);
+    assert.doesNotMatch(postBody(saved), /https:\/\/img.cnblogs.com/);
+    assert.equal(postField(saved, 'cnblogs_source_hash'), contentHash(body));
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
+    assert.equal(fs.readFileSync(filepath, 'utf8'), saved);
+  });
+});
+
+test('failed images retry without source-hash churn and later remote updates stay safe', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    let body = '<p>Original.</p><img src="https://img.cnblogs.com/photo.png">';
+    let imageOk = false;
+    let downloads = 0;
+    const options = {
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return postPage(body); },
+      async downloadImage() { downloads++; return imageOk ? { ok: true, buffer: PNG, ext: '.png' } : { ok: false }; },
+    };
+    assert.deepEqual(await syncCnblogs(options), { created: 1, updated: 0, skipped: 0, failed: 1 });
+    const filepath = path.join(postsDir, fs.readdirSync(postsDir)[0]);
+    const first = fs.readFileSync(filepath, 'utf8');
+    imageOk = true;
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 1, skipped: 0, failed: 0 });
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.equal(postField(saved, 'cnblogs_source_hash'), postField(first, 'cnblogs_source_hash'));
+    assert.equal(postField(saved, 'cnblogs_content_hash'), contentHash(postBody(saved)));
+    assert.match(saved, /src="\/images\/cnblogs\//);
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 0, skipped: 1, failed: 0 });
+    body = body.replace('Original.', 'Remote update.');
+    assert.deepEqual(await syncCnblogs(options), { created: 0, updated: 1, skipped: 0, failed: 0 });
+    assert.match(fs.readFileSync(filepath, 'utf8'), /Remote update/);
+    assert.equal(downloads, 2);
+  });
+});
+
+test('failed article pages preserve text while existing image downloads can still recover', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    const body = '<p>Existing text.</p><img src="https://img.cnblogs.com/photo.png">';
+    const original = buildCnblogsPost(syncItem(link), body);
+    const filepath = writePost(postsDir, 'existing.md', original);
+    const result = await syncCnblogs({
+      postsDir, imagesDir, delayMs: 0,
+      async fetchRss() { return singlePostFeed(link); },
+      async fetchPage() { return null; },
+      async downloadImage() { return { ok: true, buffer: PNG, ext: '.png' }; },
+    });
+    assert.deepEqual(result, { created: 0, updated: 1, skipped: 0, failed: 1 });
+    const saved = fs.readFileSync(filepath, 'utf8');
+    assert.match(saved, /<p>Existing text\.<\/p>/);
+    assert.match(saved, /src="\/images\/cnblogs\//);
+    assert.equal(postField(saved, 'cnblogs_source_hash'), postField(original, 'cnblogs_source_hash'));
+    assert.equal(postField(saved, 'cnblogs_content_hash'), contentHash(postBody(saved)));
+  });
+});
+
+test('fetch and extraction failures never replace existing full content with an RSS placeholder', async () => {
+  await withSyncDirs(async ({ postsDir, imagesDir }) => {
+    const link = 'https://www.cnblogs.com/greenpia/p/2';
+    const original = buildCnblogsPost(syncItem(link), '<p>Existing content.</p>');
+    const filepath = writePost(postsDir, 'existing.md', original);
+    for (const page of [null, '<html>Temporary error page</html>']) {
+      const result = await syncCnblogs({
+        postsDir, imagesDir, delayMs: 0,
+        async fetchRss() { return singlePostFeed(link); },
+        async fetchPage() { return page; },
+      });
+      assert.deepEqual(result, { created: 0, updated: 0, skipped: 0, failed: 1 });
+      assert.equal(fs.readFileSync(filepath, 'utf8'), original);
+    }
+  });
+});
+
+test('line endings are normalized while meaningful whitespace inside code remains detectable', () => {
+  const link = 'https://www.cnblogs.com/greenpia/p/2';
+  const body = '<pre><code>  value = 1;\n</code></pre>';
+  assert.equal(contentHash(body), contentHash(body.replace(/\n/g, '\r\n')));
+  const original = buildCnblogsPost(syncItem(link), body).replace(/\n/g, '\r\n');
+  assert.equal(buildUpdatedPostContent(original, syncItem(link), body), original);
+  const changed = body.replace('  value', '    value');
+  assert.notEqual(contentHash(body), contentHash(changed));
+  const updated = buildUpdatedPostContent(original, syncItem(link), changed);
+  assert.match(updated, /<code>    value = 1;\r\n<\/code>/);
+  assert.equal(postField(updated, 'cnblogs_content_hash'), contentHash(postBody(updated)));
+});
+
+test('updates replace old appended imported HTML without duplicating local introductory content', () => {
+  const link = 'https://www.cnblogs.com/greenpia/p/2';
+  const partial = `---\ntitle: Local\ncnblogs_url: ${link}\n---\n\nLocal introduction.\n`;
+  const completed = buildUpdatedPostContent(partial, syncItem(link), '<p>First remote body.</p>');
+  const updated = buildUpdatedPostContent(completed, syncItem(link), '<p>Second remote body.</p>');
+  assert.equal((updated.match(/Local introduction\./g) || []).length, 1);
+  assert.equal((updated.match(/<!-- cnblogs-full-body -->/g) || []).length, 1);
+  assert.equal((updated.match(/<!-- more -->/g) || []).length, 1);
+  assert.match(updated, /Second remote body\.\n<!-- more -->\n\n<p>Second remote body\.<\/p>/);
+  assert.doesNotMatch(updated, /First remote body/);
 });
 
 test('importing the module does not start a sync', async () => {

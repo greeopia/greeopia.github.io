@@ -6,6 +6,8 @@ categories:
   - 博客园
 date: 2026-09-07 17:59:00
 cnblogs_url: https://www.cnblogs.com/greenpia/p/22881593
+cnblogs_source_hash: "315d08593652bc1c6c80aef58c1afd984d32ef4a1c3cc48f816693ab62f5a250"
+cnblogs_content_hash: "fd85eca4e950db3ec9c710a34c7ca9c414faf78e9e55000b1ca90919eff33632"
 ---
 
 还是要先打一下地基是吗。。。 事情的开头总是要困难一些的，不过还好这一个学期里我也稍微熟悉了一点无gui的操作了 通常BOOT0 = 0 当BOOT1 = 0, BOOT0 = 1时，可以串口下载程序 BOOT引脚功能只在上电后瞬间有效，之后恢复原复用 滤波电容可以在VDD - VSS间 GPIO模拟输入 + ADC -> 读取端口模拟电压 RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE); // 打开 GPIOC 时钟 // SYSCLK ---> HCLK ---> PCLK2 -> GPIOC // AHB APB2...

@@ -4,7 +4,7 @@
  * 博客园：RSS 获取文章列表 → 逐篇抓取全文（#cnblogs_post_body）
  *
  * 去重：仅匹配 frontmatter 中的 cnblogs_url
- * 更新：已有文章缺全文时补全；已有全文只做远程图片的最小替换
+ * 更新：回查 RSS 内的旧文；远端正文变化时更新，检测到本地编辑则保留并报冲突
  * 图片：校验响应后原子写入 source/images/cnblogs/
  */
 
@@ -265,8 +265,56 @@ function buildRssBody(item) {
   return `${excerpt}\n<!-- more -->\n\n> 原文地址: [${item.title}](${item.link})`;
 }
 
-function buildCnblogsPost(item, body) {
+// 仅统一换行和首尾空白，不折叠代码块内部的空格或换行。
+function contentHash(content) {
+  return crypto.createHash('sha256').update(String(content).replace(/\r\n/g, '\n').trim()).digest('hex');
+}
+
+function importedBodyParts(body) {
+  const appendedMarker = '<!-- cnblogs-full-body -->';
+  const appendedIndex = body.lastIndexOf(appendedMarker);
+  const excerptStart = appendedIndex < 0 ? 0 : appendedIndex + appendedMarker.length;
+  const marker = '<!-- more -->';
+  const markerIndex = body.indexOf(marker, excerptStart);
+  return {
+    excerptStart,
+    markerIndex,
+    html: markerIndex < 0 ? body.trim() : body.slice(markerIndex + marker.length).trim(),
+  };
+}
+
+function assertSafeFullUpdate(existing, sourceHash) {
+  const lastHash = frontmatterValue(existing.raw, 'cnblogs_content_hash');
+  if (lastHash) {
+    if (contentHash(existing.body) === lastHash) return;
+    throw new Error('博客园正文已变化，但本地正文也有修改；保留本地文章，请核对原文后处理冲突');
+  }
+  // 没有历史记录时，只能为与远端一致的旧文自动建立基线。
+  if (contentHash(importedBodyParts(existing.body).html) !== sourceHash) {
+    throw new Error('旧文章尚无同步基线，且正文与博客园不同；保留本地文章，请先核对差异');
+  }
+}
+
+function refreshImportedBody(existingBody, item, body) {
+  const parts = importedBodyParts(existingBody);
+  if (parts.markerIndex < 0) return body;
+  const oldExcerpt = existingBody.slice(parts.excerptStart, parts.markerIndex).trim();
+  if (oldExcerpt === generateExcerpt(parts.html)) {
+    const prefix = parts.excerptStart ? `${existingBody.slice(0, parts.excerptStart)}\n\n` : '';
+    return `${prefix}${buildFullBody(item, body)}`;
+  }
+  // 手写摘要、补充说明和旧版追加全文前的内容继续保留。
+  return `${existingBody.slice(0, parts.markerIndex + '<!-- more -->'.length).trimEnd()}\n\n${body}`;
+}
+
+function renderExistingPost(existingContent, raw, body) {
+  const eol = existingContent.includes('\r\n') ? '\r\n' : '\n';
+  return `---\n${raw}\n---\n\n${body.trimEnd()}\n`.replace(/\r?\n/g, eol);
+}
+
+function buildCnblogsPost(item, body, sourceHash = body ? contentHash(body) : null) {
   const dateStr = parseCnblogsDate(item.pubDate);
+  const bodyContent = body ? buildFullBody(item, body) : buildRssBody(item);
   const tags = (item.categories || []).map(tag => tag.trim()).filter(Boolean);
   const tagLines = tags.length
     ? `tags:\n${tags.map(tag => `  - ${yamlScalar(tag)}`).join('\n')}`
@@ -281,16 +329,25 @@ function buildCnblogsPost(item, body) {
     `date: ${yamlScalar(dateStr)}`,
     `cnblogs_url: ${yamlScalar(item.link)}`,
     `cnblogs_full: ${body ? 'true' : 'false'}`,
+    ...(body ? [
+      `cnblogs_source_hash: ${yamlScalar(sourceHash)}`,
+      `cnblogs_content_hash: ${yamlScalar(contentHash(bodyContent))}`,
+    ] : []),
     '---',
     '',
-    body ? buildFullBody(item, body) : buildRssBody(item),
+    bodyContent,
     '',
   ].join('\n');
 }
 
-function buildUpdatedPostContent(existingContent, item, body) {
+function buildUpdatedPostContent(existingContent, item, body, sourceHash = body ? contentHash(body) : null) {
+  if (!body) return existingContent;
   const existing = parseFrontmatter(existingContent);
-  if (!existing) return buildCnblogsPost(item, body);
+  if (!existing) return buildCnblogsPost(item, body, sourceHash);
+  if (hasFullContent(existingContent)) {
+    if (frontmatterValue(existing.raw, 'cnblogs_source_hash') === sourceHash) return existingContent;
+    assertSafeFullUpdate(existing, sourceHash);
+  }
 
   let raw = existing.raw;
   if (!frontmatterValue(raw, 'cnblogs_url')) {
@@ -309,12 +366,14 @@ function buildUpdatedPostContent(existingContent, item, body) {
 
 ${body || ''}`;
   } else if (hasFullContent(existingContent)) {
-    bodyContent = existing.body;
+    bodyContent = refreshImportedBody(existing.body, item, body);
   } else {
     bodyContent = `${existing.body.trimEnd()}\n\n<!-- cnblogs-full-body -->\n\n${buildFullBody(item, body || '')}`;
   }
 
-  return `---\n${raw}\n---\n\n${bodyContent.trimEnd()}\n`;
+  raw = upsertFrontmatterField(raw, 'cnblogs_source_hash', yamlScalar(sourceHash));
+  raw = upsertFrontmatterField(raw, 'cnblogs_content_hash', yamlScalar(contentHash(bodyContent)));
+  return renderExistingPost(existingContent, raw, bodyContent);
 }
 
 // ============================================================
@@ -567,6 +626,22 @@ async function localizePostImages(html, postId, options = {}) {
   return result;
 }
 
+async function retryExistingPostImages(existing, postId, imageOptions) {
+  if (!hasFullContent(existing.content)) return false;
+  let localized = await localizePostImages(existing.content, postId, imageOptions);
+  if (localized === existing.content) return false;
+  const frontmatter = parseFrontmatter(existing.content);
+  // 图片重试不能把手改内容误认成上次导入的正文。
+  if (frontmatterValue(frontmatter.raw, 'cnblogs_content_hash') === contentHash(frontmatter.body)) {
+    const parsed = parseFrontmatter(localized);
+    const raw = upsertFrontmatterField(parsed.raw, 'cnblogs_content_hash', yamlScalar(contentHash(parsed.body)));
+    localized = renderExistingPost(localized, raw, parsed.body);
+  }
+  writeTextAtomically(existing.filepath, localized);
+  console.log('       🖼 已最小替换远程图片引用\n');
+  return true;
+}
+
 function writeTextAtomically(filepath, content) {
   fs.mkdirSync(path.dirname(filepath), { recursive: true });
   const tempPath = `${filepath}.part-${process.pid}-${Date.now()}`;
@@ -631,6 +706,7 @@ async function syncCnblogs(options = {}) {
       onFailure() { itemFailed = true; },
     };
     console.log(`[${i + 1}/${items.length}] ${item.title}`);
+    let existing = null;
     try {
       const postId = extractCnblogsPostId(item.link);
       if (!postId) {
@@ -639,32 +715,13 @@ async function syncCnblogs(options = {}) {
         continue;
       }
 
-      const existing = findPostByCnblogsUrl(postId, postsDir, item.link);
-      if (existing && hasFullContent(existing.content)) {
-        if (!hasRemoteCnblogsImages(existing.content)) {
-          console.log('       ⏭ 已有全文，跳过\n');
-          skipped++;
-          continue;
-        }
-        const localized = await localizePostImages(existing.content, postId, imageOptions);
-        if (localized !== existing.content) {
-          writeTextAtomically(existing.filepath, localized);
-          console.log('       🖼 已最小替换远程图片引用\n');
-          updated++;
-        } else {
-          console.log('       ⚠ 远程图片暂未本地化，保留原文\n');
-          if (!itemFailed) skipped++;
-        }
-        continue;
-      }
-
+      existing = findPostByCnblogsUrl(postId, postsDir, item.link);
       console.log(`       ⬇ 抓取全文: ${item.link}`);
       const pageHtml = await fetchPage(item.link);
       let body = null;
       if (pageHtml) {
         body = extractCnblogsBody(pageHtml);
         if (body) {
-          body = await localizePostImages(body, postId, imageOptions);
           console.log(`       ✓ 正文提取成功 (${body.length} 字符)`);
         } else {
           console.warn('       ⚠ 无法提取正文');
@@ -674,32 +731,53 @@ async function syncCnblogs(options = {}) {
       if (!body) {
         itemFailed = true;
         if (existing) {
-          console.warn('       ⚠ 无法抓取正文，保留已有文件\n');
-          await sleep(delayMs);
+          if (await retryExistingPostImages(existing, postId, imageOptions)) updated++;
+          console.warn('       ⚠ 无法抓取正文，保留已有正文\n');
           continue;
         }
         console.warn('       ⚠ 无法抓取正文，仅保存可重试的 RSS 占位\n');
       }
 
+      // 远端哈希必须在本地化图片前计算，避免本地路径和下载状态造成假更新。
+      const sourceHash = body ? contentHash(body) : null;
+      if (existing && hasFullContent(existing.content)) {
+        const frontmatter = parseFrontmatter(existing.content);
+        if (frontmatterValue(frontmatter.raw, 'cnblogs_source_hash') === sourceHash) {
+          if (await retryExistingPostImages(existing, postId, imageOptions)) {
+            updated++;
+          } else {
+            if (!itemFailed) skipped++;
+            console.log('       ⏭ 已核对，博客园正文未变化\n');
+          }
+          continue;
+        }
+        assertSafeFullUpdate(frontmatter, sourceHash);
+      }
+      if (body) body = await localizePostImages(body, postId, imageOptions);
+
       const postContent = existing
-        ? buildUpdatedPostContent(existing.content, item, body)
-        : buildCnblogsPost(item, body);
+        ? buildUpdatedPostContent(existing.content, item, body, sourceHash)
+        : buildCnblogsPost(item, body, sourceHash);
       const targetPath = existing ? existing.filepath : newPostPath(item, postId, postsDir);
 
+      if (existing && postContent === existing.content) {
+        if (!itemFailed) skipped++;
+        continue;
+      }
       writeTextAtomically(targetPath, postContent);
       if (existing) {
         updated++;
-        console.log('       ✏ 补全已有文章\n');
+        console.log('       ✏ 已同步已有文章\n');
       } else {
         created++;
         console.log('       ✨ 新文章\n');
       }
-      await sleep(delayMs);
     } catch (err) {
       itemFailed = true;
-      console.error(`       ❌ 处理文章失败: ${err.message}\n`);
+      console.error(`       ❌ 处理文章失败 (${existing ? existing.filename : item.link}): ${err.message}\n`);
     } finally {
       if (itemFailed) failed++;
+      await sleep(delayMs);
     }
   }
 
@@ -732,6 +810,7 @@ if (require.main === module) {
 module.exports = {
   buildCnblogsPost,
   buildUpdatedPostContent,
+  contentHash,
   extractCnblogsBody,
   extractCnblogsPostId,
   extractShanghaiDate,
