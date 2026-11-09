@@ -6,19 +6,20 @@ categories:
   - 博客园
 date: 2026-09-20 06:35:00
 cnblogs_url: https://www.cnblogs.com/greenpia/p/23048229
-cnblogs_source_hash: "f937c3633f0b5a1fff11b76c5ce273ca71fe56e1c52e06b608588d8d7932e771"
-cnblogs_content_hash: "1ddd1f2b26cdef5e5ef7bc5906cfd99cd7d8f7fe9a03d01b1a6ac22c1a1b6c20"
+cnblogs_source_hash: "cde29844d657d55773e66f76ffc25210ccd75b4802eaa030e4e49c8bd9d77ce6"
+cnblogs_content_hash: "b5d446cdc3c3770cbaefd4a557fe5306792d23405336c6984da24122217f8d22"
 updated: "2026-09-20 14:54:00"
+cnblogs_full: true
 ---
 
-tim其它...(高级的特性？) PWM 频率与占空比 $$PWM_f = TIM_f/((PSC+1)*(ARR+1))$$ $$Duty = CCR/(ARR+1)$$ // 所以一般普遍来说 改PSC和CCR会好一些 // void TIM_PrescalerConfig(TIM_TypeDef* TIMx, uint16_t Prescaler, uint16_t TIM_PSCReloadMode); // TIM_PSCReloadMode can be TIM_PSCReloadMode_Update or TIM_PSCReloadMode_Immediate //...
+tim其它...(高级的特性？) PWM 频率与占空比 \[PWM_f = TIM_f/((PSC+1)*(ARR+1)) \]\[Duty = CCR/(ARR+1) \]// 所以一般普遍来说 改PSC和CCR会好一些 // void TIM_PrescalerConfig(TIM_TypeDef* TIMx, uint16_t Prescaler, uint16_t TIM_PSCReloadMode); // TIM_PSCReloadMode can be TIM_PSCReloadMode_Update or TIM_PSCReloadMode_Immediate //...
 <!-- more -->
 
 <h1 id="tim其它高级的特性">tim其它...(高级的特性？)</h1>
 <h2 id="pwm-频率与占空比">PWM 频率与占空比</h2>
-<p>$$PWM_f = TIM_f/((PSC+1)*(ARR+1))$$</p>
-<p>$$Duty = CCR/(ARR+1)$$</p>
-<pre><code class="language-c">// 所以一般普遍来说 改PSC和CCR会好一些 
+<p></p><div class="math display">\[PWM_f = TIM_f/((PSC+1)*(ARR+1))
+\]</div><p></p><p></p><div class="math display">\[Duty = CCR/(ARR+1)
+\]</div><p></p><pre><code class="language-c">// 所以一般普遍来说 改PSC和CCR会好一些 
 // void TIM_PrescalerConfig(TIM_TypeDef* TIMx, uint16_t Prescaler, uint16_t TIM_PSCReloadMode); // TIM_PSCReloadMode can be TIM_PSCReloadMode_Update or TIM_PSCReloadMode_Immediate
 // uint16_t TIM_GetPrescaler(TIM_TypeDef* TIMx); // PSC
 
@@ -39,8 +40,8 @@ void TIM_ETRConfig(TIM_TypeDef* TIMx, uint16_t TIM_ExtTRGPrescaler, uint16_t TIM
                    uint16_t ExtTRGFilter);
 </code></pre>
 <p>孩子们市电当作外部时钟源有没有懂得</p>
-<p>$$f=1/Ts \quad duty=Ton/Ts$$</p>
-<h2 id="输出比较--pwm">输出比较 / PWM</h2>
+<p></p><div class="math display">\[f=1/Ts \quad duty=Ton/Ts
+\]</div><p></p><h2 id="输出比较--pwm">输出比较 / PWM</h2>
 <pre><code class="language-c">/* 输出比较/PWM配置：决定一个通道怎样输出波形 */
 typedef struct
 {
@@ -91,9 +92,9 @@ RCC(有GPIO_PinRemapConfig时就有AFIO) -&gt; GPIO初始化
 -&gt; TIM_OCInit -&gt; TIM_Cmd
 </code></pre>
 <p>Kconfig与设备树</p>
-<p>$$Freq = CK_PSC/((PSC+1)*(ARR+1))$$</p>
-<p>$$Duty = CCR/(ARR+1)$$</p>
-<h2 id="然后是-ic">然后是 IC...</h2>
+<p></p><div class="math display">\[Freq = CK\_PSC/((PSC+1)*(ARR+1))
+\]</div><p></p><p></p><div class="math display">\[Duty = CCR/(ARR+1)
+\]</div><p></p><h2 id="然后是-ic">然后是 IC...</h2>
 <p>AD 本身会产生大量均匀到来的中断，这对于 CPU 来说非常恶劣，<br>
 因为每次进出中断都必须保护所有寄存器，频繁的中断将导致大量不必要的开销。<br>
 因此，通过 DMA 在每个 AD 结果产生时自动移动到内存中，相当于空间换时间。<br>
