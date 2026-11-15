@@ -1,3 +1,8 @@
 {%- if theme.busuanzi_count.enable %}
-  <script id="visitor-stats-loader" defer src="{{ url_for(theme.js + '/visitor-stats.js') }}?v=vercount-1" data-counter-src="https://events.vercount.one/js" data-counter-allowed-host="greeopia.github.io"></script>
+  <script id="visitor-stats-loader" defer
+    src="{{ url_for(theme.js + '/visitor-stats.js') }}?v=vercount-3"
+    data-counter-src="https://events.vercount.one/js"
+    data-counter-read-src="https://events.vercount.one/api/v2/log"
+    data-counter-count-page="{% if is_post() or (is_home() and page.current === 1) %}true{% else %}false{% endif %}"
+    data-counter-allowed-host="greeopia.github.io"></script>
 {%- endif %}

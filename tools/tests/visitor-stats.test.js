@@ -4,12 +4,41 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
+const Hexo = require('hexo');
 const {
   createRuntime,
   install
 } = require('../../source/js/visitor-stats');
 
 const root = path.resolve(__dirname, '../..');
+
+test('generated pages count only the homepage and actual posts even with theme caching enabled', async () => {
+  const site = new Hexo(root, { silent: true });
+  try {
+    await site.init();
+    await site.load();
+    const countedPaths = new Set(['index.html', ...site.locals.get('posts').map(post => `${post.path}index.html`)]);
+    assert.ok(countedPaths.size > 1);
+    const pages = site.route.list().filter(route => route.endsWith('.html'));
+    assert.ok(pages.includes('archives/index.html'));
+    assert.ok(pages.includes('tag/index.html'));
+    assert.ok(pages.includes('page/2/index.html'));
+    let counted = 0;
+    // Render excluded pages first to catch page-specific flags cached globally.
+    pages.sort((left, right) => Number(countedPaths.has(left)) - Number(countedPaths.has(right)));
+    for (const page of pages) {
+      let html = '';
+      for await (const chunk of site.route.get(page)) html += chunk;
+      const flag = html.match(/data-counter-count-page="(true|false)"/);
+      assert.ok(flag, page);
+      assert.equal(flag[1] === 'true', countedPaths.has(page), page);
+      if (flag[1] === 'true') counted++;
+    }
+    assert.equal(counted, countedPaths.size);
+  } finally {
+    await site.exit();
+  }
+});
 
 function fakeElement(key, field = 'data-visitor-stats-value') {
   const attributes = new Map([[field, key]]);
@@ -40,6 +69,7 @@ function fakeWindow(options = {}) {
     getAttribute(name) { return attributes.get(name) || null; }
   };
   const scripts = [];
+  const reads = [];
   const timers = [];
   const listeners = {};
   const observer = { disconnect() { this.disconnected = true; } };
@@ -47,7 +77,9 @@ function fakeWindow(options = {}) {
     currentScript: {
       dataset: {
         counterAllowedHost: 'greeopia.github.io',
-        counterSrc: 'https://vercount.example.test/counter.js'
+        counterSrc: 'https://vercount.example.test/counter.js',
+        counterReadSrc: 'https://vercount.example.test/api/v2/log',
+        counterCountPage: options.countPage === false ? 'false' : 'true'
       }
     },
     querySelector(selector) {
@@ -72,9 +104,17 @@ function fakeWindow(options = {}) {
     document,
     location: options.location || {
       protocol: 'https:',
-      hostname: 'greeopia.github.io'
+      hostname: 'greeopia.github.io',
+      href: 'https://greeopia.github.io/20261031/article/?highlight=pid'
     },
     navigator: { onLine: options.onLine !== false },
+    fetch: async (url, request) => {
+      reads.push({ url, request });
+      return options.fetch ? options.fetch(url, request) : {
+        ok: true,
+        json: async () => ({ status: 'success', data: { site_uv: 1234, site_pv: 5678 } })
+      };
+    },
     MutationObserver: class {
       constructor(callback) {
         this.callback = callback;
@@ -108,6 +148,7 @@ function fakeWindow(options = {}) {
     listeners,
     mirrors,
     observer,
+    reads,
     scripts,
     statisticsRoot,
     timers,
@@ -152,6 +193,8 @@ test('VerCount supplies one compatible counter request for the footer and floati
   assert.ok(loaderTag);
   assert.match(statistics, /visitor-stats\.js/);
   assert.match(statistics, /data-counter-src="https:\/\/events\.vercount\.one\/js"/);
+  assert.match(statistics, /data-counter-read-src="https:\/\/events\.vercount\.one\/api\/v2\/log"/);
+  assert.match(statistics, /\?v=vercount-3/);
   assert.match(statistics, /data-counter-allowed-host="greeopia\.github\.io"/);
   assert.doesNotMatch(loaderTag[0], /\ssrc="https:\/\//);
   assert.doesNotMatch(statistics, /busuanzi\.ibruce\.info/);
@@ -178,6 +221,7 @@ test('local preview hosts never request the production statistics service', () =
     assert.deepEqual(fake.values.map(item => item.textContent), ['本地预览', '本地预览']);
     assert.deepEqual(fake.mirrors.map(item => item.textContent), ['预览', '预览']);
     assert.equal(fake.scripts.length, 0, location.hostname);
+    assert.equal(fake.reads.length, 0, location.hostname);
   }
 });
 
@@ -191,6 +235,7 @@ test('non-production hosts fail closed without contacting the counting service',
   assert.deepEqual(fake.values.map(item => item.textContent), ['暂不可用', '暂不可用']);
   assert.deepEqual(fake.mirrors.map(item => item.textContent), ['—', '—']);
   assert.equal(fake.scripts.length, 0);
+  assert.equal(fake.reads.length, 0);
 });
 
 test('offline state is explicit and does not request the official script', () => {
@@ -200,6 +245,87 @@ test('offline state is explicit and does not request the official script', () =>
 
   assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable');
   assert.deepEqual(fake.values.map(item => item.textContent), ['暂不可用', '暂不可用']);
+  assert.equal(fake.scripts.length, 0);
+  assert.equal(fake.reads.length, 0);
+});
+
+test('each eligible homepage or post open counts once without alternating or browser storage', () => {
+  for (let page = 1; page <= 6; page++) {
+    const fake = fakeWindow();
+    Object.defineProperty(fake.window, 'localStorage', {
+      get() { throw new Error('Storage disabled'); }
+    });
+    const runtime = install(fake.window);
+    runtime.start();
+    assert.equal(install(fake.window), runtime);
+    assert.equal(fake.scripts.length, 1);
+    assert.equal(fake.reads.length, 0);
+  }
+});
+
+test('archive, tag, category and paginated indexes only read existing totals', async () => {
+  for (const pathname of ['/archives/', '/archives/2026/', '/tags/控制/', '/tag/', '/category/', '/categories/博客园/', '/page/2/']) {
+    const fake = fakeWindow({
+      countPage: false,
+      location: { protocol: 'https:', hostname: 'greeopia.github.io', href: 'https://greeopia.github.io' + pathname }
+    });
+    install(fake.window);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fake.scripts.length, 0, pathname);
+    assert.equal(fake.reads.length, 1, pathname);
+    assert.equal(fake.reads[0].request.method, 'GET');
+    assert.equal(fake.reads[0].request.cache, 'no-store');
+    const readUrl = new URL(fake.reads[0].url);
+    assert.equal(readUrl.origin, 'https://vercount.example.test');
+    assert.equal(readUrl.searchParams.get('url'), fake.window.location.href);
+    assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'ready');
+    assert.deepEqual(fake.values.map(item => item.textContent), ['1234', '5678']);
+    assert.deepEqual(fake.mirrors.map(item => item.textContent), ['1234', '5678']);
+  }
+});
+
+test('pages without an explicit counting flag remain read-only', async () => {
+  const fake = fakeWindow();
+  delete fake.window.document.currentScript.dataset.counterCountPage;
+  install(fake.window);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fake.scripts.length, 0);
+  assert.equal(fake.reads.length, 1);
+});
+
+test('failed and invalid read-only responses show unavailable without a counting fallback', async () => {
+  for (const fetch of [
+    async () => { throw new Error('Network failure'); },
+    async () => ({ ok: false }),
+    async () => ({ ok: true, json: async () => { throw new Error('Bad JSON'); } }),
+    async () => ({ ok: true, json: async () => ({ status: 'error' }) }),
+    async () => ({ ok: true, json: async () => ({ status: 'success', data: { site_pv: 999 } }) }),
+    async () => ({ ok: true, json: async () => ({ status: 'success', data: { site_uv: -1, site_pv: 999 } }) })
+  ]) {
+    const fake = fakeWindow({ countPage: false, fetch });
+    install(fake.window);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fake.scripts.length, 0);
+    assert.equal(fake.reads.length, 1);
+    assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable');
+    assert.deepEqual(fake.values.map(item => item.textContent), ['暂不可用', '暂不可用']);
+  }
+});
+
+test('a read-only response can recover after the display timeout without a second request', async () => {
+  let finishRead;
+  const fake = fakeWindow({
+    countPage: false,
+    fetch: () => new Promise(resolve => { finishRead = resolve; })
+  });
+  install(fake.window);
+  fake.timers[0].callback();
+  assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'unavailable');
+  finishRead({ ok: true, json: async () => ({ status: 'success', data: { site_uv: 12, site_pv: 0 } }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fake.statisticsRoot.getAttribute('data-state'), 'ready');
+  assert.deepEqual(fake.mirrors.map(item => item.textContent), ['12', '0']);
+  assert.equal(fake.reads.length, 1);
   assert.equal(fake.scripts.length, 0);
 });
 

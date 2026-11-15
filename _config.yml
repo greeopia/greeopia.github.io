@@ -115,6 +115,22 @@ ignore:
 ## Themes: https://hexo.io/themes/
 theme: hexo-theme-next-master
 
+# Index article titles and full text for NexT's local search.
+search:
+  path: search.json
+  field: post
+  content: true
+  format: striptags
+
+theme_config:
+  local_search:
+    enable: true
+    top_n_per_article: 1
+    unescape: false
+    preload: false
+  vendors:
+    local_search: /assets/search/search.js
+
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:

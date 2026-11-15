@@ -11,6 +11,7 @@
   'use strict';
 
   const OFFICIAL_SCRIPT_URL = 'https://events.vercount.one/js';
+  const OFFICIAL_READ_URL = 'https://events.vercount.one/api/v2/log';
   const REMOTE_SCRIPT_ID = 'visitor-counter-script';
   const DEFAULT_TIMEOUT_MS = 6000;
   const LOADING_TEXT = '正在读取';
@@ -38,9 +39,14 @@
       ? settings.timeoutMs
       : DEFAULT_TIMEOUT_MS;
     const currentScript = document.currentScript;
+    const countPage = currentScript && currentScript.dataset
+      && currentScript.dataset.counterCountPage === 'true';
     const scriptUrl = settings.scriptUrl
       || (currentScript && currentScript.dataset && currentScript.dataset.counterSrc)
       || OFFICIAL_SCRIPT_URL;
+    const readUrl = settings.readUrl
+      || (currentScript && currentScript.dataset && currentScript.dataset.counterReadSrc)
+      || OFFICIAL_READ_URL;
     const allowedHost = String(
       settings.allowedHost
       || (currentScript && currentScript.dataset && currentScript.dataset.counterAllowedHost)
@@ -145,38 +151,38 @@
       }
     }
 
-    function start() {
-      if (requestStarted) return;
-      requestStarted = true;
-
-      if (check()) return;
-      setValues(LOADING_TEXT);
-      setState('loading');
-
-      if (isLocalPreview(window.location)) {
-        settled = true;
-        setValues(LOCAL_PREVIEW_TEXT);
-        showContainers();
-        setState('local-preview');
-        return;
-      }
-
-      if (!isAllowedProductionOrigin(window.location)) {
+    async function readTotals() {
+      try {
+        const response = await window.fetch(`${readUrl}?url=${encodeURIComponent(window.location.href)}`, {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (!response.ok) throw new Error('Counter read failed');
+        const result = await response.json();
+        if (result.status !== 'success' || !result.data) throw new Error('Invalid counter response');
+        const totals = values.map(element => result.data[element.getAttribute('data-visitor-stats-value')]);
+        if (!totals.every(value => Number.isSafeInteger(value) && value >= 0)) {
+          throw new Error('Invalid counter values');
+        }
+        values.forEach((element, index) => { element.textContent = String(totals[index]); });
+        check();
+      } catch {
         markUnavailable();
-        return;
       }
+    }
 
-      if (window.navigator && window.navigator.onLine === false) {
-        markUnavailable();
-        return;
-      }
-
-      watchValues();
+    function beginRequest(shouldCount) {
       if (typeof window.addEventListener === 'function') {
         window.addEventListener('offline', markUnavailable);
       }
       timeoutId = window.setTimeout(markUnavailable, timeoutMs);
 
+      if (!shouldCount) {
+        readTotals();
+        return;
+      }
+
+      watchValues();
       const existingScript = document.getElementById(REMOTE_SCRIPT_ID);
       if (existingScript) {
         check();
@@ -195,6 +201,31 @@
       } catch (error) {
         markUnavailable();
       }
+    }
+
+    function start() {
+      if (requestStarted) return;
+      requestStarted = true;
+
+      if (check()) return;
+      setValues(LOADING_TEXT);
+      setState('loading');
+
+      if (isLocalPreview(window.location)) {
+        settled = true;
+        setValues(LOCAL_PREVIEW_TEXT);
+        showContainers();
+        setState('local-preview');
+        return;
+      }
+
+      if (!isAllowedProductionOrigin(window.location)
+        || (window.navigator && window.navigator.onLine === false)) {
+        markUnavailable();
+        return;
+      }
+
+      beginRequest(countPage);
     }
 
     return { check, start };

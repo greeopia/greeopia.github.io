@@ -7,7 +7,7 @@
   {{ partial('_third-party/analytics/index.njk', {}, {cache: theme.cache.enable}) }}
   {{ partial('_scripts/index.njk', {}, {cache: theme.cache.enable}) }}
   {{ partial('_third-party/index.njk', {}, {cache: theme.cache.enable}) }}
-  {{ partial('_third-party/statistics/index.njk', {}, {cache: theme.cache.enable}) }}
+  {{ partial('_third-party/statistics/index.njk') }}
   {%- include '_third-party/math/index.njk' -%}
   {%- include '_third-party/quicklink.njk' -%}
   {{- next_inject('head') }}
@@ -19,7 +19,7 @@
 <body itemscope itemtype="http://schema.org/WebPage"{% if theme.motion.enable %} class="use-motion"{% endif %}>
   {%- if is_home() %}
   <div class="home-bg-cover" id="home-bg-cover">
-    <img src="{{ url_for('images/lily-white.jpg') }}" alt="" class="home-bg-img home-bg-light">
+    <img src="{{ url_for('images/tsumugi-day.jpg') }}" alt="" class="home-bg-img home-bg-light">
     <img src="{{ url_for('images/miku-heads.jpg') }}" alt="" class="home-bg-img home-bg-dark">
   </div>
   <section class="hero-banner">
@@ -152,6 +152,8 @@
   </footer>
 
   {{ partial('_partials/widgets.njk', {}, {cache: theme.cache.enable}) }}
+
+  {%- include '_partials/search/index.njk' -%}
 
   {{- next_inject('bodyEnd') }}
 </body>
